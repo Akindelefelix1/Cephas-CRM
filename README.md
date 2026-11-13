@@ -11,6 +11,19 @@ npm run dev
 
 Create a production build with `npm run build`.
 
+## Deploy to Render
+
+This project is configured as a Render Static Site in `render.yaml`.
+
+1. Push this project to a GitHub or GitLab repository. Include `package-lock.json` and `render.yaml`.
+2. In Render, choose **New → Blueprint** and connect the repository.
+3. Render reads `render.yaml`, runs `npm ci && npm run build`, and publishes `dist`.
+4. When the deploy finishes, open the generated `onrender.com` URL. Render will redeploy when you push changes to the connected branch.
+
+To configure the site manually instead, create a **Static Site** and use build command `npm ci && npm run build` and publish directory `dist`. Add a rewrite rule with source `/*` and destination `/index.html` for client-side navigation fallback.
+
+The UI preview currently needs no environment variables. Its sample data and edits are held in the browser session, so they are not shared between visitors or devices and will not provide durable CRM storage.
+
 ## Included UI areas
 
 - Dashboard with sample contact, campaign, delivery and engagement indicators
