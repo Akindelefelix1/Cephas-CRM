@@ -19,6 +19,8 @@ import {
   Filter,
   Gauge,
   Grid2X2,
+  GripVertical,
+  Image as ImageIcon,
   Layers3,
   LayoutDashboard,
   LifeBuoy,
@@ -87,9 +89,68 @@ type Campaign = {
   objective?: string;
   message?: string;
   scheduledAt?: string;
+  emailBlocks?: EmailBlock[];
+  attachments?: string[];
+  includedAudiences?: string[];
+  excludedAudiences?: string[];
+  excludedContacts?: string[];
 };
 type AuditEvent = [string, string, string, string, string, string];
 type FilterRule = { field: string; operator: string; value: string };
+type EmailBlock = {
+  id: string;
+  type: "text" | "image" | "link" | "button" | "divider";
+  content: string;
+  url?: string;
+};
+const serializeEmailBlocks = (blocks: EmailBlock[]) =>
+  blocks
+    .map((block) => {
+      if (block.type === "image")
+        return block.content ? `[Image: ${block.content}]` : "";
+      if (block.type === "link")
+        return block.url
+          ? `[Link: ${block.content || block.url} - ${block.url}]`
+          : block.content;
+      if (block.type === "button")
+        return block.url
+          ? `[Button: ${block.content || "Learn more"} - ${block.url}]`
+          : block.content;
+      if (block.type === "divider") return "---";
+      return block.content;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+const getSmsEstimate = (message: string) => {
+  const gsmBasic = new Set(
+    Array.from(
+      "@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà\n\r",
+    ),
+  );
+  const gsmExtended = new Set(Array.from("^{}\\[~]|€\f"));
+  const chars = Array.from(message);
+  const usesGsm = chars.every(
+    (char) => gsmBasic.has(char) || gsmExtended.has(char),
+  );
+  const units = usesGsm
+    ? chars.reduce((count, char) => count + (gsmExtended.has(char) ? 2 : 1), 0)
+    : message.length;
+  const singleLimit = usesGsm ? 160 : 70;
+  const multipartLimit = usesGsm ? 153 : 67;
+  const parts =
+    units === 0
+      ? 0
+      : units <= singleLimit
+        ? 1
+        : Math.ceil(units / multipartLimit);
+  return {
+    characters: chars.length,
+    units,
+    encoding: usesGsm ? "GSM-7" : "UCS-2",
+    capacity: units <= singleLimit ? singleLimit : multipartLimit,
+    parts,
+  };
+};
 type TeamRole =
   "Superadmin" | "Admin" | "Campaign Approver" | "Marketing Staff" | "Viewer";
 type PermissionId =
@@ -241,6 +302,11 @@ type TemplateDraft = {
   channel: "Email" | "SMS" | "WhatsApp";
   subject: string;
   body: string;
+  emailBlocks?: EmailBlock[];
+  attachments?: string[];
+  objective?: string;
+  excludedAudiences?: string[];
+  excludedContacts?: string[];
 };
 type AudienceRecord = {
   name: string;
@@ -597,7 +663,7 @@ function App() {
     setSelected([]);
     recordAudit(
       "Viewed contact profile",
-      `${contact.name} · ${contact.email}`,
+      `${contact.name} - ${contact.email}`,
       "Profile viewed",
     );
   };
@@ -663,9 +729,34 @@ function App() {
       ),
     );
     setActiveContact(contact);
+    const changes = [
+      contact.name !== activeContact?.name ? "name" : "",
+      contact.email.toLowerCase() !== activeContact?.email.toLowerCase()
+        ? "email"
+        : "",
+      contact.phone !== activeContact?.phone ? "phone" : "",
+      contact.organization !== activeContact?.organization
+        ? "organisation"
+        : "",
+      contact.category !== activeContact?.category ? "category" : "",
+      contact.location !== activeContact?.location ? "location" : "",
+      JSON.stringify(contact.tags) !== JSON.stringify(activeContact?.tags)
+        ? "tags"
+        : "",
+      JSON.stringify(contact.interests) !==
+      JSON.stringify(activeContact?.interests)
+        ? "interests"
+        : "",
+      contact.status !== activeContact?.status
+        ? `email consent ${activeContact?.status} → ${contact.status}`
+        : "",
+      contact.smsStatus !== activeContact?.smsStatus
+        ? `SMS opt-in ${activeContact?.smsStatus ?? "Pending"} → ${contact.smsStatus ?? "Pending"}`
+        : "",
+    ].filter(Boolean);
     recordAudit(
       "Updated contact",
-      `${contact.name} · ${contact.email}`,
+      `${contact.name} - ${changes.join(", ") || "record details"}`,
       "Contact updated",
     );
     setModal("");
@@ -750,6 +841,13 @@ function App() {
     message: string,
     status = "Draft",
     scheduledAt = "",
+    emailBlocks?: EmailBlock[],
+    attachments?: string[],
+    targeting?: {
+      includedAudiences: string[];
+      excludedAudiences: string[];
+      excludedContacts: string[];
+    },
   ) => {
     setCampaignRecords((current) => [
       {
@@ -766,6 +864,9 @@ function App() {
         objective,
         message,
         scheduledAt: scheduledAt || undefined,
+        emailBlocks,
+        attachments,
+        ...targeting,
       },
       ...current,
     ]);
@@ -813,13 +914,24 @@ function App() {
       subject = subjectLine.slice("Subject: ".length);
       body = content.join("\n\n");
     }
+    body = body.replace(/\n\nAttachments: [\s\S]*$/, "");
     setCampaignTemplateSeed({
       name: copyName,
       channel: campaign.channel,
       subject,
       body,
+      emailBlocks: campaign.emailBlocks,
+      attachments: campaign.attachments,
+      objective: campaign.objective,
+      excludedAudiences: campaign.excludedAudiences,
+      excludedContacts: campaign.excludedContacts,
     });
-    setCampaignAudienceSeed(campaign.audience.split(" · ")[0]);
+    const includedAudiences = campaign.includedAudiences?.length
+      ? campaign.includedAudiences.join(", ")
+      : campaign.audience === "Not selected"
+        ? ""
+        : campaign.audience.split(" · ")[0];
+    setCampaignAudienceSeed(includedAudiences);
     setModal(
       campaign.channel === "Email"
         ? "email"
@@ -2221,10 +2333,10 @@ function ContactProfile({
 }) {
   const consentCopy =
     contact.status === "Subscribed"
-      ? "This contact is currently eligible to receive communications."
+      ? "Email consent is subscribed. Check the separate SMS opt-in before sending texts."
       : contact.status === "Pending"
-        ? "Subscription is pending. Confirm consent before sending campaigns."
-        : "This contact has unsubscribed and should be excluded from campaigns.";
+        ? "Email consent is pending. Confirm permission before sending email; review SMS opt-in separately."
+        : "This contact unsubscribed from email. Keep email suppressed and review SMS opt-in separately.";
   return (
     <div className="contact-profile-page">
       <PageHeading
@@ -4907,7 +5019,7 @@ function HelpCentre({
       steps: [
         "Select contacts and choose Create static audience, or open Audiences.",
         "Name the group; dynamic segments can filter by category, tag, location, interest, and consent status.",
-        "Review matched contacts. Pending and unsubscribed contacts are excluded from dynamic campaign audiences.",
+        "Review matched contacts. Dynamic preview counts use email consent; each channel’s opt-in must be checked before delivery.",
       ],
       icon: <Users size={18} />,
     },
@@ -5234,6 +5346,13 @@ function ModalDialog({
     message: string,
     status?: string,
     scheduledAt?: string,
+    emailBlocks?: EmailBlock[],
+    attachments?: string[],
+    targeting?: {
+      includedAudiences: string[];
+      excludedAudiences: string[];
+      excludedContacts: string[];
+    },
   ) => void;
   saveAudience: (
     name: string,
@@ -5274,6 +5393,16 @@ function ModalDialog({
     [consent, setConsent] = useState(initialContact?.status === "Subscribed"),
     [file, setFile] = useState<File | null>(null),
     [message, setMessage] = useState(""),
+    [emailBlocks, setEmailBlocks] = useState<EmailBlock[]>([
+      ...(initialTemplate?.emailBlocks ?? [
+        {
+          id: "email-text-1",
+          type: "text" as const,
+          content: initialTemplate?.body ?? "",
+        },
+      ]),
+    ]),
+    [draggedBlockId, setDraggedBlockId] = useState<string | null>(null),
     [campaignName, setCampaignName] = useState(
       initialTemplate ? `${initialTemplate.name} campaign` : "",
     ),
@@ -5289,12 +5418,17 @@ function ModalDialog({
     [scheduleAt, setScheduleAt] = useState(""),
     [previewOpen, setPreviewOpen] = useState(false),
     [testEmail, setTestEmail] = useState(""),
-    [excludedEmails, setExcludedEmails] = useState<string[]>([]),
-    [excludedAudiences, setExcludedAudiences] = useState<string[]>([]),
-    [campaignLink, setCampaignLink] = useState(""),
-    [attachmentNames, setAttachmentNames] = useState<string[]>([]),
+    [excludedEmails, setExcludedEmails] = useState<string[]>(
+      initialTemplate?.excludedContacts ?? [],
+    ),
+    [excludedAudiences, setExcludedAudiences] = useState<string[]>(
+      initialTemplate?.excludedAudiences ?? [],
+    ),
+    [attachmentNames, setAttachmentNames] = useState<string[]>(
+      initialTemplate?.attachments ?? [],
+    ),
     [senderId, setSenderId] = useState(""),
-    [objective, setObjective] = useState(""),
+    [objective, setObjective] = useState(initialTemplate?.objective ?? ""),
     [segmentType, setSegmentType] = useState<
       "Dynamic segment" | "Static group"
     >(initialMembers.length > 0 ? "Static group" : "Dynamic segment"),
@@ -5310,7 +5444,20 @@ function ModalDialog({
       setCampaignName(`${initialTemplate.name} campaign`);
       setTemplateChannel(initialTemplate.channel);
       setSubject(initialTemplate.subject);
+      setObjective(initialTemplate.objective ?? "");
+      setExcludedAudiences(initialTemplate.excludedAudiences ?? []);
+      setExcludedEmails(initialTemplate.excludedContacts ?? []);
       setMessage(initialTemplate.body);
+      setEmailBlocks(
+        initialTemplate.emailBlocks ?? [
+          {
+            id: `email-text-${Date.now()}`,
+            type: "text",
+            content: initialTemplate.body,
+          },
+        ],
+      );
+      setAttachmentNames(initialTemplate.attachments ?? []);
     }
   }, [initialTemplate]);
   const initialAudienceNames = initialAudience
@@ -5332,6 +5479,7 @@ function ModalDialog({
       .toLowerCase()
       .includes(audienceSearch.toLowerCase()),
   );
+  const smsEstimate = getSmsEstimate(message);
   const title =
     kind === "add"
       ? "Add a contact"
@@ -5360,6 +5508,49 @@ function ModalDialog({
     }
     setFile(candidate);
     setValidation("");
+  };
+  const commitEmailBlocks = (next: EmailBlock[]) => {
+    setEmailBlocks(next);
+    setMessage(serializeEmailBlocks(next));
+  };
+  const addEmailBlock = (type: EmailBlock["type"]) => {
+    const content =
+      type === "link" ? "Read more" : type === "button" ? "Get started" : "";
+    commitEmailBlocks([
+      ...emailBlocks,
+      { id: `email-${type}-${crypto.randomUUID()}`, type, content },
+    ]);
+  };
+  const updateEmailBlock = (id: string, updates: Partial<EmailBlock>) =>
+    commitEmailBlocks(
+      emailBlocks.map((block) =>
+        block.id === id ? { ...block, ...updates } : block,
+      ),
+    );
+  const removeEmailBlock = (id: string) =>
+    commitEmailBlocks(emailBlocks.filter((block) => block.id !== id));
+  const shiftEmailBlock = (id: string, offset: -1 | 1) => {
+    const currentIndex = emailBlocks.findIndex((block) => block.id === id);
+    const nextIndex = currentIndex + offset;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= emailBlocks.length)
+      return;
+    const next = [...emailBlocks];
+    [next[currentIndex], next[nextIndex]] = [
+      next[nextIndex],
+      next[currentIndex],
+    ];
+    commitEmailBlocks(next);
+  };
+  const moveEmailBlock = (targetId: string) => {
+    if (!draggedBlockId || draggedBlockId === targetId) return;
+    const next = [...emailBlocks];
+    const from = next.findIndex((block) => block.id === draggedBlockId);
+    const to = next.findIndex((block) => block.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [block] = next.splice(from, 1);
+    next.splice(to, 0, block);
+    commitEmailBlocks(next);
+    setDraggedBlockId(null);
   };
   const submit = () => {
     if (kind === "add" || kind === "edit-contact") {
@@ -5402,7 +5593,7 @@ function ModalDialog({
             : consent
               ? "Subscribed"
               : "Pending",
-        smsStatus: kind === "edit-contact" ? smsStatus : "Pending",
+        smsStatus,
         initials: name
           .split(/\s+/)
           .slice(0, 2)
@@ -5426,11 +5617,27 @@ function ModalDialog({
         setValidation("Enter a campaign name before saving this draft.");
         return;
       }
+      if (
+        campaignNames.some(
+          (name) => name.toLowerCase() === campaignName.trim().toLowerCase(),
+        )
+      ) {
+        setValidation(
+          "A campaign with this name already exists. Choose a unique name.",
+        );
+        return;
+      }
       if (kind === "email" && !subject.trim()) {
         setValidation("Enter an email subject line before saving this draft.");
         return;
       }
-      if (!message.trim()) {
+      const hasContent =
+        kind === "email"
+          ? emailBlocks.some(
+              (block) => block.type !== "divider" && block.content.trim(),
+            )
+          : Boolean(message.trim());
+      if (!hasContent) {
         setValidation("Add message content before saving this draft.");
         return;
       }
@@ -5438,8 +5645,17 @@ function ModalDialog({
         setValidation("Sender ID must use up to 11 letters or numbers.");
         return;
       }
-      if (campaignLink && !/^https?:\/\//i.test(campaignLink)) {
-        setValidation("Enter a valid link starting with http:// or https://.");
+      if (
+        kind === "email" &&
+        emailBlocks.some(
+          (block) =>
+            (block.type === "link" || block.type === "button") &&
+            !/^https?:\/\//i.test(block.url ?? ""),
+        )
+      ) {
+        setValidation(
+          "Add a valid https:// link to each link or button block.",
+        );
         return;
       }
       if (scheduleAt && new Date(scheduleAt).getTime() <= Date.now()) {
@@ -5459,15 +5675,33 @@ function ModalDialog({
           ? `${audiences.join(", ")}${excludedAudiences.length ? ` · excluding groups: ${excludedAudiences.join(", ")}` : ""}${excludedEmails.length ? ` · excluding ${excludedEmails.length} contact${excludedEmails.length === 1 ? "" : "s"}` : ""}`
           : "Not selected",
         objective,
-        `${kind === "email" ? `Subject: ${subject.trim()}\n\n` : ""}${message}${campaignLink ? `\n\nLink: ${campaignLink}` : ""}${attachmentNames.length ? `\n\nAttachments: ${attachmentNames.join(", ")}` : ""}${kind === "sms" && senderId ? `\nSender ID: ${senderId}` : ""}`,
+        `${kind === "email" ? `Subject: ${subject.trim()}\n\n` : ""}${message}${attachmentNames.length ? `\n\nAttachments: ${attachmentNames.join(", ")}` : ""}${kind === "sms" && senderId ? `\nSender ID: ${senderId}` : ""}`,
         scheduleAt ? "Scheduled" : "Draft",
         scheduleAt,
+        kind === "email" ? emailBlocks : undefined,
+        kind === "email" ? attachmentNames : undefined,
+        {
+          includedAudiences: audiences,
+          excludedAudiences,
+          excludedContacts: excludedEmails,
+        },
       );
       return;
     }
     if (kind === "segment") {
       if (!campaignName.trim()) {
         setValidation("Enter an audience name.");
+        return;
+      }
+      if (
+        audienceChoices.some(
+          (item) =>
+            item.name.toLowerCase() === campaignName.trim().toLowerCase(),
+        )
+      ) {
+        setValidation(
+          "An audience with this name already exists. Choose a unique name.",
+        );
         return;
       }
       if (
@@ -5503,6 +5737,8 @@ function ModalDialog({
         channel: templateChannel,
         subject: templateChannel === "Email" ? subject.trim() : "",
         body: message.trim(),
+        emailBlocks: templateChannel === "Email" ? emailBlocks : undefined,
+        attachments: templateChannel === "Email" ? attachmentNames : undefined,
       });
       return;
     }
@@ -5661,20 +5897,35 @@ function ModalDialog({
                 </label>
               </div>
             ) : (
-              <label className="consent-check">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />{" "}
-                Contact has consented to marketing communications
-              </label>
+              <>
+                <label className="consent-check">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                  />{" "}
+                  Contact has consented to email marketing
+                </label>
+                <label className="form-label">
+                  SMS opt-in status
+                  <select
+                    value={smsStatus}
+                    onChange={(e) =>
+                      setSmsStatus(e.target.value as Contact["status"])
+                    }
+                  >
+                    <option>Pending</option>
+                    <option>Subscribed</option>
+                    <option>Unsubscribed</option>
+                  </select>
+                </label>
+              </>
             )}
             <p className="modal-note">
               <ShieldCheck size={15} />{" "}
               {kind === "edit-contact"
                 ? "Unsubscribed contacts are suppressed from campaign targeting. Keep a clear record of each consent change."
-                : "Without recorded permission, contact status stays pending and the record should not be used for marketing."}
+                : "Email status stays pending without permission. Set SMS opt-in separately; imported lists do not grant consent."}
             </p>
           </div>
         ) : kind === "import" ? (
@@ -5711,9 +5962,10 @@ function ModalDialog({
               </span>
             </div>
             <p className="modal-note">
-              <ShieldCheck size={15} /> Email is required. Duplicate emails and
-              invalid addresses are skipped. Imported contacts remain pending
-              unless a Consent Status column explicitly says subscribed.
+              <ShieldCheck size={15} /> Email is required; invalid email or
+              phone numbers and duplicate emails or phones are skipped. Both
+              consent columns default to Pending unless their own consent status
+              is explicitly supplied.
             </p>
           </div>
         ) : (
@@ -6135,9 +6387,10 @@ function ModalDialog({
                     </div>
                   </details>
                   <p className="modal-note">
-                    <ShieldCheck size={15} /> Unsubscribed and pending contacts
-                    are suppressed by default. Imported records do not grant
-                    marketing permission.
+                    <ShieldCheck size={15} /> Suppress contacts without
+                    permission for this channel before delivery. Imported
+                    records do not grant consent, and this preview does not
+                    resolve a live recipient list.
                   </p>
                   {kind === "email" && (
                     <label className="form-label">
@@ -6167,17 +6420,6 @@ function ModalDialog({
                   {kind === "email" && (
                     <>
                       <label className="form-label">
-                        Link (optional)
-                        <input
-                          type="url"
-                          value={campaignLink}
-                          onChange={(event) =>
-                            setCampaignLink(event.target.value)
-                          }
-                          placeholder="https://example.com"
-                        />
-                      </label>
-                      <label className="form-label">
                         Images or attachments
                         <input
                           type="file"
@@ -6203,25 +6445,205 @@ function ModalDialog({
                       </label>
                     </>
                   )}
-                  <label className="form-label">
-                    {kind === "sms"
-                      ? "SMS message"
-                      : kind === "whatsapp"
-                        ? "WhatsApp message"
-                        : "Email content"}
-                    <textarea
-                      rows={3}
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      placeholder={
-                        kind === "sms"
-                          ? "Write your SMS message..."
-                          : kind === "whatsapp"
-                            ? "Write your WhatsApp message..."
-                            : "Write the email content..."
-                      }
-                    />
-                  </label>
+                  {kind === "email" ? (
+                    <section className="email-editor">
+                      <div className="email-editor-heading">
+                        <div>
+                          <b>Email content</b>
+                          <small>Drag blocks to reorder your message.</small>
+                        </div>
+                        <span>
+                          {emailBlocks.length} block
+                          {emailBlocks.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div
+                        className="email-editor-toolbar"
+                        aria-label="Add email content block"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => addEmailBlock("text")}
+                        >
+                          + Text
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addEmailBlock("image")}
+                        >
+                          + Image
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addEmailBlock("link")}
+                        >
+                          + Link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addEmailBlock("button")}
+                        >
+                          + Button
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addEmailBlock("divider")}
+                        >
+                          + Divider
+                        </button>
+                      </div>
+                      <div
+                        className="email-editor-canvas"
+                        onDragOver={(event) => event.preventDefault()}
+                      >
+                        {emailBlocks.map((block, index) => (
+                          <article
+                            className={`email-editor-block ${draggedBlockId === block.id ? "dragging" : ""}`}
+                            key={block.id}
+                            draggable
+                            onDragStart={(event) => {
+                              setDraggedBlockId(block.id);
+                              event.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              moveEmailBlock(block.id);
+                            }}
+                            onDragEnd={() => setDraggedBlockId(null)}
+                          >
+                            <div className="email-editor-block-head">
+                              <span>
+                                <GripVertical size={15} />{" "}
+                                {block.type === "text"
+                                  ? "Text"
+                                  : block.type === "image"
+                                    ? "Image"
+                                    : block.type === "link"
+                                      ? "Link"
+                                      : block.type === "button"
+                                        ? "Button"
+                                        : "Divider"}
+                              </span>
+                              <div className="email-editor-block-actions">
+                                <button
+                                  type="button"
+                                  aria-label={`Move ${block.type} block ${index + 1} up`}
+                                  disabled={index === 0}
+                                  onClick={() => shiftEmailBlock(block.id, -1)}
+                                >
+                                  Up
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Move ${block.type} block ${index + 1} down`}
+                                  disabled={index === emailBlocks.length - 1}
+                                  onClick={() => shiftEmailBlock(block.id, 1)}
+                                >
+                                  Down
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${block.type} block ${index + 1}`}
+                                  onClick={() => removeEmailBlock(block.id)}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                            {block.type === "text" && (
+                              <textarea
+                                rows={3}
+                                value={block.content}
+                                onChange={(event) =>
+                                  updateEmailBlock(block.id, {
+                                    content: event.target.value,
+                                  })
+                                }
+                                placeholder="Write your email content. Use {{first_name}} to personalise."
+                              />
+                            )}
+                            {block.type === "image" && (
+                              <label className="email-image-picker">
+                                <ImageIcon size={18} />
+                                <span>
+                                  {block.content ||
+                                    "Choose an image for this block"}
+                                </span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(event) =>
+                                    updateEmailBlock(block.id, {
+                                      content:
+                                        event.target.files?.[0]?.name ?? "",
+                                    })
+                                  }
+                                />
+                                <small>
+                                  Image files are listed in this preview and are
+                                  not uploaded.
+                                </small>
+                              </label>
+                            )}
+                            {(block.type === "link" ||
+                              block.type === "button") && (
+                              <div className="email-link-fields">
+                                <input
+                                  aria-label={`${block.type} label`}
+                                  value={block.content}
+                                  onChange={(event) =>
+                                    updateEmailBlock(block.id, {
+                                      content: event.target.value,
+                                    })
+                                  }
+                                  placeholder={
+                                    block.type === "button"
+                                      ? "Button label"
+                                      : "Link text"
+                                  }
+                                />
+                                <input
+                                  aria-label={`${block.type} URL`}
+                                  type="url"
+                                  value={block.url ?? ""}
+                                  onChange={(event) =>
+                                    updateEmailBlock(block.id, {
+                                      url: event.target.value,
+                                    })
+                                  }
+                                  placeholder="https://example.com"
+                                />
+                              </div>
+                            )}
+                            {block.type === "divider" && <hr />}
+                          </article>
+                        ))}
+                        {emailBlocks.length === 0 && (
+                          <p className="email-editor-empty">
+                            Add a content block to start your email.
+                          </p>
+                        )}
+                      </div>
+                      <small className="count-hint">
+                        Use the handle to drag blocks into a new order. Merge
+                        fields such as {"{{first_name}}"} are preserved.
+                      </small>
+                    </section>
+                  ) : (
+                    <label className="form-label">
+                      {kind === "sms" ? "SMS message" : "WhatsApp message"}
+                      <textarea
+                        rows={3}
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        placeholder={
+                          kind === "sms"
+                            ? "Write your SMS message..."
+                            : "Write your WhatsApp message..."
+                        }
+                      />
+                    </label>
+                  )}
                   <div className="campaign-preview-actions">
                     <button
                       type="button"
@@ -6272,10 +6694,57 @@ function ModalDialog({
                           ? `Subject: ${subject || "(no subject)"}`
                           : `${kind.toUpperCase()} PREVIEW`}
                       </small>
-                      <p>
-                        {message.replaceAll("{{first_name}}", "Amara") ||
-                          "Your message preview will appear here."}
-                      </p>
+                      {kind === "email" ? (
+                        <div className="email-preview-blocks">
+                          {emailBlocks.map((block) =>
+                            block.type === "text" ? (
+                              <p key={block.id}>
+                                {block.content.replaceAll(
+                                  "{{first_name}}",
+                                  "Amara",
+                                )}
+                              </p>
+                            ) : block.type === "image" ? (
+                              <div
+                                className="email-preview-image"
+                                key={block.id}
+                              >
+                                <ImageIcon size={18} />
+                                <span>
+                                  {block.content || "Image placeholder"}
+                                </span>
+                              </div>
+                            ) : block.type === "divider" ? (
+                              <hr key={block.id} />
+                            ) : block.type === "button" ? (
+                              <span
+                                className="email-preview-button"
+                                key={block.id}
+                              >
+                                {block.content || "Button"}
+                              </span>
+                            ) : (
+                              <a
+                                href={block.url || "#"}
+                                key={block.id}
+                                onClick={(event) => event.preventDefault()}
+                              >
+                                {block.content || block.url}
+                              </a>
+                            ),
+                          )}
+                          {attachmentNames.length > 0 && (
+                            <small>
+                              Attachments: {attachmentNames.join(", ")}
+                            </small>
+                          )}
+                        </div>
+                      ) : (
+                        <p>
+                          {message.replaceAll("{{first_name}}", "Amara") ||
+                            "Your message preview will appear here."}
+                        </p>
+                      )}
                       <small>Personalization sample · Amara</small>
                     </section>
                   )}
@@ -6300,23 +6769,16 @@ function ModalDialog({
                   </label>
                   {kind === "sms" ? (
                     <small className="count-hint">
-                      {message.length}/{message.length <= 160 ? 160 : 153}{" "}
-                      characters ·{" "}
-                      {Math.max(
-                        1,
-                        Math.ceil(
-                          message.length / (message.length <= 160 ? 160 : 153),
-                        ),
-                      )}{" "}
-                      message part{message.length > 160 ? "s" : ""} ·
-                      illustrative cost ₦
-                      {Math.max(
-                        1,
-                        Math.ceil(
-                          message.length / (message.length <= 160 ? 160 : 153),
-                        ),
-                      ) * 5}
-                      at sample rate ₦5/part
+                      {smsEstimate.characters} characters &middot;{" "}
+                      {smsEstimate.units} {smsEstimate.encoding} units &middot;
+                      up to {smsEstimate.capacity} units per part &middot;{" "}
+                      {smsEstimate.parts} part
+                      {smsEstimate.parts === 1 ? "" : "s"} &middot; illustrative
+                      cost &#8358;{smsEstimate.parts * 5} per recipient at
+                      sample rate &#8358;5/part
+                      <br />
+                      Actual encoding and pricing depend on the connected
+                      provider.
                     </small>
                   ) : kind === "whatsapp" ? (
                     <div className="modal-note whatsapp-note">
