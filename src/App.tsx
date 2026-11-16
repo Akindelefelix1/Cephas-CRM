@@ -1236,7 +1236,7 @@ export function CRMApp({
         type: type === "Dynamic segment" ? "dynamic" as const : "static" as const,
         description: description?.trim() || (type === "Dynamic segment" ? `${rules.length} saved conditions` : `${resolvedMembers.length} selected contacts`),
         rules: type === "Dynamic segment" ? rules : [],
-        ...(!audienceId && type === "Static group" ? { contactIds } : {}),
+        ...(type === "Static group" ? { contactIds } : {}),
       };
       savedAudience = audienceId
         ? await crmApi.updateAudience(audienceId, payload)
@@ -6418,7 +6418,7 @@ function ModalDialog({
                       {initialMembers.map((contact) => contact.name).join(", ")}
                     </small>
                     <p className="modal-note">
-                      These contacts will be saved as members of the new static audience.
+                      These contacts will be saved as members of this static audience.
                     </p>
                   </div>
                 ) : (
