@@ -380,7 +380,6 @@ type AudienceDraft = {
   memberCount?: number;
   updatedAt: string;
 };
-const initialCategories = ["Uncategorized"];
 const audienceRulesFromApi = (value: ApiAudience["rules"]): FilterRule[] => {
   try {
     const rules = typeof value === "string" ? JSON.parse(value) : value;
@@ -585,7 +584,7 @@ export function CRMApp({
   const toastTimer = useRef<number | undefined>(undefined);
   const [page, setPage] = useState<Page>(() => pageForPath(window.location.pathname)),
     [contacts, setContacts] = useState<Contact[]>([]),
-    [categories, setCategories] = useState<string[]>(initialCategories),
+    [categories, setCategories] = useState<string[]>([]),
     [contactsLoading, setContactsLoading] = useState(true),
     [contactsError, setContactsError] = useState(""),
     [contactsReloadKey, setContactsReloadKey] = useState(0),
@@ -632,7 +631,7 @@ export function CRMApp({
         if (!active) return;
         const loaded = rows.map((row) => contactFromApi(row) as Contact);
         setContacts(loaded);
-        setCategories(Array.from(new Set(["Uncategorized", ...categoryNames, ...loaded.map((contact) => contact.category)])));
+        setCategories(Array.from(new Set([...categoryNames, ...loaded.map((contact) => contact.category)])));
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -1334,23 +1333,27 @@ export function CRMApp({
       notify(`Could not delete audience: ${error instanceof Error ? error.message : "API error"}`);
     }
   };
-  const createCategory = async (name: string) => {
+  const createCategory = async (name: string): Promise<string | null> => {
     try {
       const created = await crmApi.createCategory(name);
       setCategories((current) => current.includes(created.name) ? current : [...current, created.name]);
     } catch (error) {
-      notify(`Could not create category: ${error instanceof Error ? error.message : "API error"}`);
-      return;
+      const message = error instanceof Error ? error.message : "API error";
+      notify(`Could not create category: ${message}`);
+      return message;
     }
     recordAudit("Created contact category", name, "Category created");
     notify(`${name} category created in the CRM`);
+    return null;
   };
-  const renameCategory = async (previous: string, next: string) => {
+  const renameCategory = async (previous: string, next: string): Promise<string | null> => {
     try {
-      await crmApi.renameCategory(previous, next);
+      const renamed = await crmApi.renameCategory(previous, next);
+      next = renamed.name;
     } catch (error) {
-      notify(`Could not rename category: ${error instanceof Error ? error.message : "API error"}`);
-      return;
+      const message = error instanceof Error ? error.message : "API error";
+      notify(`Could not rename category: ${message}`);
+      return message;
     }
     setCategories((current) =>
       current.map((name) => (name === previous ? next : name)),
@@ -1383,8 +1386,9 @@ export function CRMApp({
       "Category updated",
     );
     notify(`${previous} renamed to ${next} in the CRM`);
+    return null;
   };
-  const deleteCategory = async (name: string) => {
+  const deleteCategory = async (name: string): Promise<string | null> => {
     const fallback =
       categories.find((categoryName) => categoryName !== name) ??
       "Uncategorized";
@@ -1394,8 +1398,9 @@ export function CRMApp({
     try {
       await crmApi.deleteCategory(name, fallback);
     } catch (error) {
-      notify(`Could not delete category: ${error instanceof Error ? error.message : "API error"}`);
-      return;
+      const message = error instanceof Error ? error.message : "API error";
+      notify(`Could not delete category: ${message}`);
+      return message;
     }
     setCategories((current) =>
       current.filter((categoryName) => categoryName !== name),
@@ -1428,6 +1433,7 @@ export function CRMApp({
       "Category deleted",
     );
     notify(`${name} deleted; ${affected} contacts moved to ${fallback}`);
+    return null;
   };
   const openCampaignFromTemplate = (template: TemplateDraft) => {
     setCampaignTemplateSeed(template);
@@ -2183,9 +2189,12 @@ export function CRMApp({
             </>
           )}
           {page === "Categories" && (
-            <CategoryManager
+              <CategoryManager
               categories={categories}
               contacts={contacts}
+                loading={contactsLoading}
+                loadError={contactsError}
+                retry={() => setContactsReloadKey((key) => key + 1)}
               onBack={() => go("Contacts")}
               onCreate={createCategory}
               onRename={renameCategory}
@@ -2194,6 +2203,7 @@ export function CRMApp({
           )}
           {page === "Contact profile" && activeContact && (
             <ContactProfile
+              key={activeContact.id || activeContact.email}
               contact={activeContact}
               activity={auditEvents.filter(
                 (event) =>
@@ -2206,6 +2216,7 @@ export function CRMApp({
               )}
               onBack={() => go("Contacts")}
               notify={notify}
+              onEmailSent={() => recordAudit("Sent a personal email", `${activeContact.name} · ${activeContact.email}`, "Email sent")}
               onEdit={() => {
                 const key = activeContact.id || activeContact.email;
                 window.history.pushState({}, "", `/contacts/${encodeURIComponent(key)}/edit`);
@@ -2388,6 +2399,7 @@ export function CRMApp({
       {pendingDuplicate && (
         <div
           className="modal-backdrop"
+          role="presentation"
           onMouseDown={() => setPendingDuplicate(null)}
         >
           <section
@@ -2507,6 +2519,9 @@ export function CRMApp({
 function CategoryManager({
   categories,
   contacts,
+  loading,
+  loadError,
+  retry,
   onBack,
   onCreate,
   onRename,
@@ -2514,40 +2529,75 @@ function CategoryManager({
 }: {
   categories: string[];
   contacts: Contact[];
+  loading: boolean;
+  loadError: string;
+  retry: () => void;
   onBack: () => void;
-  onCreate: (name: string) => void;
-  onRename: (previous: string, next: string) => void;
-  onDelete: (name: string) => void;
+  onCreate: (name: string) => Promise<string | null>;
+  onRename: (previous: string, next: string) => Promise<string | null>;
+  onDelete: (name: string) => Promise<string | null>;
 }) {
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState("");
   const [editValue, setEditValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const isDuplicate = (candidate: string, except = "") =>
     categories.some(
       (name) =>
-        name !== except &&
+        name.toLocaleLowerCase() !== except.toLocaleLowerCase() &&
         name.toLocaleLowerCase() === candidate.toLocaleLowerCase(),
     );
-  const add = (event: React.FormEvent) => {
+  const add = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     const value = newName.trim();
     if (!value) return setError("Enter a category name.");
     if (isDuplicate(value))
       return setError("A category with this name already exists.");
-    onCreate(value);
-    setNewName("");
-    setError("");
+    setBusy(true);
+    try {
+      const failure = await onCreate(value);
+      if (failure) return setError(failure);
+      setNewName("");
+      setError("");
+    } finally {
+      setBusy(false);
+    }
   };
-  const saveRename = (previous: string) => {
+  const saveRename = async (previous: string) => {
+    if (busy) return;
     const value = editValue.trim();
     if (!value) return setError("Enter a category name.");
     if (isDuplicate(value, previous))
       return setError("A category with this name already exists.");
-    if (value !== previous) onRename(previous, value);
-    setEditing("");
-    setError("");
+    if (value === previous) {
+      setEditing("");
+      setError("");
+      return;
+    }
+    setBusy(true);
+    try {
+      const failure = await onRename(previous, value);
+      if (failure) return setError(failure);
+      setEditing("");
+      setError("");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmDelete = async () => {
+    if (!deleteTarget || busy) return;
+    setBusy(true);
+    try {
+      const failure = await onDelete(deleteTarget);
+      if (failure) return setError(failure);
+      setDeleteTarget("");
+      setError("");
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <div className="category-manager-page">
@@ -2579,10 +2629,11 @@ function CategoryManager({
             }}
             placeholder="e.g. Volunteer"
             maxLength={48}
+            disabled={busy}
           />
         </label>
-        <button className="btn primary" type="submit">
-          <Plus size={16} /> Add category
+        <button className="btn primary" type="submit" disabled={busy || loading || Boolean(loadError)}>
+          {busy ? <LoaderCircle size={16} className="auth-spinner" /> : <Plus size={16} />} {busy ? "Saving…" : "Add category"}
         </button>
       </form>
       {error && (
@@ -2590,6 +2641,8 @@ function CategoryManager({
           {error}
         </p>
       )}
+      {loading && <div className="empty-state"><LoaderCircle size={18} className="auth-spinner" /><span>Loading contact categories…</span></div>}
+      {loadError && <div className="empty-state" role="alert"><b>Categories could not be loaded</b><span>{loadError}</span><button className="btn secondary" onClick={retry}>Retry</button></div>}
       <section className="panel category-list-panel">
         <div className="panel-heading">
           <div>
@@ -2603,7 +2656,8 @@ function CategoryManager({
           </div>
         </div>
         <div className="category-list">
-          {categories.map((name) => {
+          {!loading && !loadError && categories.length === 0 && <div className="empty-state"><b>No categories yet</b><span>Create a category to organize contacts.</span></div>}
+          {!loading && !loadError && categories.map((name) => {
             const usage = contacts.filter(
               (contact) => contact.category === name,
             ).length;
@@ -2614,6 +2668,7 @@ function CategoryManager({
                     <input
                       aria-label={`Rename ${name}`}
                       value={editValue}
+                      disabled={busy}
                       onChange={(event) => {
                         setEditValue(event.target.value);
                         setError("");
@@ -2623,12 +2678,14 @@ function CategoryManager({
                     <span className="category-usage">{usage} contacts</span>
                     <button
                       className="btn primary"
-                      onClick={() => saveRename(name)}
+                      onClick={() => void saveRename(name)}
+                      disabled={busy}
                     >
-                      Save
+                      {busy ? "Saving…" : "Save"}
                     </button>
                     <button
                       className="btn secondary"
+                      disabled={busy}
                       onClick={() => {
                         setEditing("");
                         setError("");
@@ -2648,6 +2705,7 @@ function CategoryManager({
                     </span>
                     <button
                       className="btn secondary"
+                      disabled={busy}
                       onClick={() => {
                         setEditing(name);
                         setEditValue(name);
@@ -2697,18 +2755,17 @@ function CategoryManager({
             <div className="category-confirm-actions">
               <button
                 className="btn secondary"
+                disabled={busy}
                 onClick={() => setDeleteTarget("")}
               >
                 Keep category
               </button>
               <button
                 className="btn danger"
-                onClick={() => {
-                  onDelete(deleteTarget);
-                  setDeleteTarget("");
-                }}
+                disabled={busy}
+                onClick={() => void confirmDelete()}
               >
-                Delete category
+                {busy ? "Deleting..." : "Delete category"}
               </button>
             </div>
           </div>
@@ -2722,6 +2779,7 @@ function ContactProfile({
   activity,
   onBack,
   notify,
+  onEmailSent,
   onEdit,
   onDelete,
   onStartCampaign,
@@ -2730,10 +2788,56 @@ function ContactProfile({
   activity: AuditEvent[];
   onBack: () => void;
   notify: (message: string) => void;
+  onEmailSent: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onStartCampaign: () => void;
 }) {
+  const [emailComposerOpen, setEmailComposerOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("Hello {{first_name}}");
+  const [emailBody, setEmailBody] = useState("Hi {{first_name}},\n\nI wanted to follow up with you.\n\nBest,\nCephas CRM");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const personalize = (template: string) => {
+    const [firstName = "", ...rest] = contact.name.split(/\s+/);
+    const values: Record<string, string> = {
+      first_name: firstName,
+      last_name: rest.join(" "),
+      name: contact.name,
+      full_name: contact.name,
+      email: contact.email,
+      organization: contact.organization ?? "",
+      location: contact.location === "Not provided" ? "" : contact.location,
+    };
+    return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (match, key: string) =>
+      Object.hasOwn(values, key.toLowerCase()) ? values[key.toLowerCase()] : match,
+    );
+  };
+  const sendPersonalEmail = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!contact.id) {
+      setEmailError("This contact is not linked to a saved CRM record.");
+      return;
+    }
+    if (contact.status !== "Subscribed") {
+      setEmailError("Email consent is not subscribed. Update the contact’s consent before sending.");
+      return;
+    }
+    setEmailSending(true);
+    setEmailError("");
+    try {
+      await crmApi.sendContactEmail(contact.id, { subject: emailSubject, body: emailBody });
+      onEmailSent();
+      setEmailComposerOpen(false);
+      notify(`Email sent to ${contact.email}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send email";
+      setEmailError(message);
+      notify(`Could not send email: ${message}`);
+    } finally {
+      setEmailSending(false);
+    }
+  };
   const consentCopy =
     contact.status === "Subscribed"
       ? "Email consent is subscribed. Check the separate SMS opt-in before sending texts."
@@ -2783,12 +2887,13 @@ function ContactProfile({
             </span>
           </div>
         </div>
-        <a
+        <button
           className="btn secondary profile-email"
-          href={`mailto:${contact.email}`}
+          type="button"
+          onClick={() => { setEmailError(""); setEmailComposerOpen(true); }}
         >
           <Mail size={15} /> Email contact
-        </a>
+        </button>
       </section>
       <div className="contact-profile-grid">
         <section className="panel profile-details-panel">
@@ -2943,6 +3048,53 @@ function ContactProfile({
           </button>
         </section>
       </div>
+      {emailComposerOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !emailSending) setEmailComposerOpen(false);
+          }}
+        >
+          <form className="modal contact-email-modal" role="dialog" aria-modal="true" aria-labelledby="contact-email-title" onSubmit={sendPersonalEmail} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <small className="modal-eyebrow">PERSONAL EMAIL</small>
+                <h2 id="contact-email-title">Send an email to {contact.name}</h2>
+              </div>
+              <button className="icon-btn" type="button" aria-label="Close email composer" disabled={emailSending} onClick={() => setEmailComposerOpen(false)}><X size={17} /></button>
+            </div>
+            <div className="modal-fields">
+              <div className="email-recipient-lock">
+                <span>To</span><b>{contact.email}</b><small>Recipient is locked to this contact.</small>
+              </div>
+              {contact.status !== "Subscribed" && <p className="email-send-warning" role="alert">This contact is {contact.status.toLowerCase()} for email. Update email consent before sending.</p>}
+              {!contact.id && <p className="email-send-warning" role="alert">This contact is not linked to a saved CRM record, so it cannot be sent through Zoho.</p>}
+              <label className="form-label">
+                Subject
+                <input value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} maxLength={200} required />
+              </label>
+              <label className="form-label">
+                Message
+                <textarea className="contact-email-body" value={emailBody} onChange={(event) => setEmailBody(event.target.value)} maxLength={10000} required />
+              </label>
+              <p className="personalization-hint">Personalize with <code>{"{{first_name}}"}</code>, <code>{"{{last_name}}"}</code>, <code>{"{{name}}"}</code>, <code>{"{{email}}"}</code>, <code>{"{{organization}}"}</code>, or <code>{"{{location}}"}</code>.</p>
+              <div className="personalization-preview">
+                <b>Preview for {contact.name}</b>
+                <strong>{personalize(emailSubject) || "Subject preview"}</strong>
+                <p>{personalize(emailBody) || "Your message preview will appear here."}</p>
+              </div>
+              {emailError && <p className="validation-message" role="alert">{emailError}</p>}
+            </div>
+            <div className="modal-foot">
+              <button className="btn secondary" type="button" disabled={emailSending} onClick={() => setEmailComposerOpen(false)}>Cancel</button>
+              <button className="btn primary" type="submit" disabled={emailSending || !contact.id || contact.status !== "Subscribed" || !emailSubject.trim() || !emailBody.trim()}>
+                {emailSending ? <LoaderCircle size={15} className="auth-spinner" /> : <Send size={15} />}
+                {emailSending ? "Sending..." : "Send email"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -6277,7 +6429,20 @@ function ModalDialog({
             {kind === "segment" || kind === "edit-audience" ? (
               <>
                 <label className="form-label">
-                  Segment type
+                  <span className="segment-type-label">
+                    Segment type
+                    <span
+                      className="segment-type-help"
+                      tabIndex={0}
+                      role="img"
+                      aria-label="What does segment type mean?"
+                    >
+                      <CircleHelp size={14} aria-hidden="true" />
+                      <span className="segment-type-tooltip" role="tooltip">
+                        Dynamic segments automatically include contacts that match your rules. Static groups contain contacts you add or remove manually.
+                      </span>
+                    </span>
+                  </span>
                   <select
                     value={segmentType}
                     onChange={(e) =>
@@ -6293,6 +6458,15 @@ function ModalDialog({
                     <b>
                       <Filter size={15} /> Define your audience
                     </b>
+                    <p className="filter-builder-help">
+                      Each condition filters your contacts. Add more conditions to narrow the group; a contact must match every condition. For example:
+                    </p>
+                    <ul className="filter-builder-examples">
+                      <li><code>Category is Prospect</code><span>Contacts in the Prospect category.</span></li>
+                      <li><code>Location contains Lagos</code><span>Contacts whose location includes “Lagos”.</span></li>
+                      <li><code>Status is Subscribed</code><span>Contacts subscribed to email.</span></li>
+                      <li><code>Tag is not Customer</code><span>Contacts without the Customer tag.</span></li>
+                    </ul>
                     {rules.map((rule, index) => (
                       <div className="condition-row" key={index}>
                         <div className="field-pair">

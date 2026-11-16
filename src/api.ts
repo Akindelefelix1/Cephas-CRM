@@ -46,7 +46,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(detail || `API request failed (${response.status})`);
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { message?: unknown; error?: unknown };
+      if (Array.isArray(parsed.message)) message = parsed.message.join(" ");
+      else if (typeof parsed.message === "string") message = parsed.message;
+      else if (typeof parsed.error === "string") message = parsed.error;
+    } catch {
+      // Keep plain-text API responses readable as-is.
+    }
+    throw new Error(message || `API request failed (${response.status})`);
   }
   return response.json() as Promise<T>;
 }
@@ -63,6 +72,8 @@ export const crmApi = {
     request<ApiContact>("/contacts", { method: "POST", body: JSON.stringify(contact) }),
   updateContact: (id: string, contact: Partial<ApiContact>) =>
     request<ApiContact>(`/contacts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(contact) }),
+  sendContactEmail: (id: string, email: { subject: string; body: string }) =>
+    request<{ sent: boolean; to: string }>(`/contacts/${encodeURIComponent(id)}/email`, { method: "POST", body: JSON.stringify(email) }),
   mergeContact: (targetId: string, sourceId: string | undefined, contact: Partial<ApiContact>) =>
     request<ApiContact>(`/contacts/${encodeURIComponent(targetId)}/merge`, { method: "POST", body: JSON.stringify({ ...contact, sourceId }) }),
   listCategories: async () => (await request<ApiCategory[]>("/categories")).map((category) => category.name),
