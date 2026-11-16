@@ -24,6 +24,19 @@ export type ApiAudience = {
   description: string | null;
   rules: string | Array<{ field: string; operator: string; value: string }>;
   memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApiAudienceDetail = ApiAudience & {
+  rules: Array<{ field: string; operator: string; value: string }>;
+  members: { contact: ApiContact; addedAt: string | null }[];
+};
+export type ApiAudienceInput = {
+  name: string;
+  type: "static" | "dynamic";
+  description: string;
+  rules: Array<{ field: string; operator: string; value: string }>;
+  contactIds?: string[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -60,11 +73,17 @@ export const crmApi = {
   deleteCategory: (name: string, fallbackName: string) =>
     request<{ deleted: boolean; name: string; movedContacts: number; fallback: string }>(`/categories/${encodeURIComponent(name)}`, { method: "DELETE", body: JSON.stringify({ fallbackName }) }),
   listAudiences: () => request<ApiAudience[]>("/audiences"),
-  getAudience: (id: string) => request<ApiAudience & { members: { contact: ApiContact }[] }>(`/audiences/${encodeURIComponent(id)}`),
-  createAudience: (audience: { name: string; type: "static" | "dynamic"; description: string; rules: Array<{ field: string; operator: string; value: string }>; contactIds?: string[] }) =>
+  getAudience: (id: string) => request<ApiAudienceDetail>(`/audiences/${encodeURIComponent(id)}`),
+  createAudience: (audience: ApiAudienceInput) =>
     request<ApiAudience>("/audiences", { method: "POST", body: JSON.stringify(audience) }),
+  updateAudience: (id: string, audience: Partial<ApiAudienceInput>) =>
+    request<ApiAudience>(`/audiences/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(audience) }),
+  deleteAudience: (id: string) =>
+    request<{ deleted: boolean; id: string }>(`/audiences/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addAudienceMembers: (id: string, contactIds: string[]) =>
     request<{ added: number }>(`/audiences/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ contactIds }) }),
+  removeAudienceMember: (id: string, contactId: string) =>
+    request<{ removed: boolean; contactId: string }>(`/audiences/${encodeURIComponent(id)}/members/${encodeURIComponent(contactId)}`, { method: "DELETE" }),
 };
 
 export function contactFromApi(contact: ApiContact) {

@@ -45,7 +45,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { contactFromApi, crmApi, type ApiContact } from "./api";
+import { contactFromApi, crmApi, type ApiAudience, type ApiAudienceDetail, type ApiContact } from "./api";
 
 type Page =
   | "Dashboard"
@@ -360,7 +360,7 @@ type TemplateDraft = {
   excludedContacts?: string[];
 };
 type AudienceRecord = {
-  id?: string;
+  id: string;
   name: string;
   type: "Dynamic segment" | "Static group";
   description: string;
@@ -369,17 +369,38 @@ type AudienceRecord = {
   tone: string;
   rules: FilterRule[];
   members: Contact[];
-  isSample: boolean;
 };
 type AudienceDraft = {
-  id?: string;
+  id: string;
   name: string;
   type: "Dynamic segment" | "Static group";
+  description: string;
   rules: FilterRule[];
   members: Contact[];
   memberCount?: number;
+  updatedAt: string;
 };
 const initialCategories = ["Uncategorized"];
+const audienceRulesFromApi = (value: ApiAudience["rules"]): FilterRule[] => {
+  try {
+    const rules = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(rules)) return [];
+    return rules.filter((rule): rule is FilterRule => Boolean(rule && typeof rule.field === "string" && typeof rule.operator === "string" && typeof rule.value === "string"));
+  } catch {
+    return [];
+  }
+};
+const audienceRecordFromApi = (row: ApiAudience | ApiAudienceDetail, members: Contact[] = []): AudienceRecord => ({
+  id: row.id,
+  name: row.name,
+  type: row.type === "dynamic" ? "Dynamic segment" : "Static group",
+  description: row.description ?? "",
+  count: String(row.memberCount),
+  updated: new Date(row.updatedAt).toLocaleDateString(),
+  tone: "violet",
+  rules: audienceRulesFromApi(row.rules),
+  members,
+});
 const navGroups: {
   label: string;
   items: { name: Page; icon: typeof Grid2X2; badge?: string }[];
@@ -575,6 +596,12 @@ export function CRMApp({
       useState<TemplateDraft | null>(null),
     [activeAudience, setActiveAudience] = useState<AudienceRecord | null>(null),
     [audienceDrafts, setAudienceDrafts] = useState<AudienceDraft[]>([]),
+    [audienceLoading, setAudienceLoading] = useState(true),
+    [audienceError, setAudienceError] = useState(""),
+    [audienceReloadKey, setAudienceReloadKey] = useState(0),
+    [audienceProfileLoading, setAudienceProfileLoading] = useState(() => pageForPath(window.location.pathname) === "Audience profile"),
+    [audienceProfileError, setAudienceProfileError] = useState(""),
+    [audienceEditSeed, setAudienceEditSeed] = useState<AudienceRecord | null>(null),
     [segmentSeedContacts, setSegmentSeedContacts] = useState<Contact[]>([]),
     [campaignAudienceSeed, setCampaignAudienceSeed] = useState(""),
     [auditEvents, setAuditEvents] = useState<AuditEvent[]>(auditRows),
@@ -616,24 +643,25 @@ export function CRMApp({
   }, [contactsReloadKey]);
   useEffect(() => {
     let active = true;
+    setAudienceLoading(true);
+    setAudienceError("");
     crmApi.listAudiences().then((rows) => {
       if (!active) return;
-      const saved = rows.map((row): AudienceDraft => {
-        let rules: FilterRule[] = [];
-        try { rules = typeof row.rules === "string" ? JSON.parse(row.rules) as FilterRule[] : row.rules; } catch { /* Ignore malformed legacy rule JSON. */ }
-        return {
-          id: row.id,
-          name: row.name,
-          type: row.type === "dynamic" ? "Dynamic segment" : "Static group",
-          rules,
-          members: [],
-          memberCount: row.memberCount,
-        };
-      });
-      setAudienceDrafts(saved);
-    }).catch(() => { /* Audience lists stay independent of contact loading. */ });
+      setAudienceDrafts(rows.map((row): AudienceDraft => ({
+        id: row.id,
+        name: row.name,
+        type: row.type === "dynamic" ? "Dynamic segment" : "Static group",
+        description: row.description ?? "",
+        rules: audienceRulesFromApi(row.rules),
+        members: [],
+        memberCount: row.memberCount,
+        updatedAt: row.updatedAt,
+      })));
+    }).catch((error: unknown) => {
+      if (active) setAudienceError(error instanceof Error ? error.message : "Could not load audiences from the CRM API");
+    }).finally(() => { if (active) setAudienceLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [audienceReloadKey]);
   const toApiContact = (contact: Contact): Omit<ApiContact, "id" | "createdAt"> => {
     const [firstName, ...lastNames] = contact.name.trim().split(/\s+/);
     return {
@@ -704,7 +732,7 @@ export function CRMApp({
     const path = p === "Contact profile" && activeContact
       ? `/contacts/${encodeURIComponent(activeContact.id || activeContact.email)}`
       : p === "Audience profile" && activeAudience
-        ? `/audiences/${encodeURIComponent(activeAudience.name)}`
+        ? `/audiences/${encodeURIComponent(activeAudience.id)}`
         : pathForPage(p);
     if (normalizePath(window.location.pathname) !== path) {
       window.history.pushState({}, "", path);
@@ -773,36 +801,27 @@ export function CRMApp({
       setActiveAudience(null);
       return;
     }
-    const name = decodeURIComponent(match[1]);
-    const draft = audienceDrafts.find((item) => item.name.toLowerCase() === name.toLowerCase());
-    if (draft) {
-      setActiveAudience({
-        id: draft.id,
-        name: draft.name,
-        type: draft.type,
-        description: `${draft.rules.length} saved conditions`,
-        count: String(draft.memberCount ?? draft.members.length),
-        updated: "Saved to CRM",
-        tone: "violet",
-        rules: draft.rules,
-        members: draft.members,
-        isSample: false,
-      });
+    const key = decodeURIComponent(match[1]);
+    if (audienceLoading) return;
+    const draft = audienceDrafts.find((item) => item.id === key || item.name.toLowerCase() === key.toLowerCase());
+    if (!draft) {
+      setActiveAudience(null);
+      setAudienceProfileError("This audience could not be found. Return to the audience list and refresh it.");
+      setAudienceProfileLoading(false);
       return;
     }
-    const sample = audienceSamples.find((item) => item[0].toLowerCase() === name.toLowerCase());
-    setActiveAudience(sample ? {
-      name: sample[0],
-      type: sample[1],
-      description: sample[2],
-      count: sample[3],
-      updated: sample[4],
-      tone: sample[5],
-      rules: [],
-      members: [],
-      isSample: true,
-    } : null);
-  }, [audienceDrafts, page]);
+    let active = true;
+    setAudienceProfileLoading(true);
+    setAudienceProfileError("");
+    crmApi.getAudience(draft.id).then((saved) => {
+      if (!active) return;
+      const members = saved.members.map((member) => contactFromApi(member.contact) as Contact);
+      setActiveAudience(audienceRecordFromApi(saved, members));
+    }).catch((error: unknown) => {
+      if (active) setAudienceProfileError(error instanceof Error ? error.message : "Could not load this audience from the API");
+    }).finally(() => { if (active) setAudienceProfileLoading(false); });
+    return () => { active = false; };
+  }, [audienceDrafts, audienceLoading, page]);
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -834,6 +853,7 @@ export function CRMApp({
       const saved = await crmApi.createContact(toApiContact(contact));
       const persisted = contactFromApi(saved) as Contact;
       setContacts((current) => [persisted, ...current]);
+      setAudienceReloadKey((key) => key + 1);
       setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
     } catch (error) {
       notify(`Could not save contact: ${error instanceof Error ? error.message : "API error"}`);
@@ -884,6 +904,7 @@ export function CRMApp({
     setContacts((current) =>
       current.map((item) => item.id === existingContact.id ? persisted : item),
     );
+    setAudienceReloadKey((key) => key + 1);
     setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
     setActiveContact(persisted);
     const changes = [
@@ -970,6 +991,7 @@ export function CRMApp({
       setContacts((current) => current
         .filter((item) => !pendingDuplicate.sourceId || item.id !== pendingDuplicate.sourceId)
         .map((item) => item.id === existing.id ? persisted : item));
+      setAudienceReloadKey((key) => key + 1);
       setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
       if (activeContact?.id === existing.id || activeContact?.id === pendingDuplicate.sourceId) setActiveContact(persisted);
     } catch (error) {
@@ -996,6 +1018,7 @@ export function CRMApp({
       const saved = await crmApi.createContact(toApiContact(pendingDuplicate.incoming));
       const persisted = contactFromApi(saved) as Contact;
       setContacts((current) => [persisted, ...current]);
+      setAudienceReloadKey((key) => key + 1);
       setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
     } catch (error) {
       notify(`Could not save separate contact: ${error instanceof Error ? error.message : "API error"}`);
@@ -1017,6 +1040,7 @@ export function CRMApp({
     try {
       await crmApi.deleteContact(contact.id);
       setContacts((current) => current.filter((item) => item.id !== contact.id));
+      setAudienceReloadKey((key) => key + 1);
       setSelected((current) => current.filter((email) => email !== contact.email));
       recordAudit("Deleted contact", `${contact.name} · ${contact.email}`, "Contact deleted");
       setContactToDelete(null);
@@ -1044,6 +1068,7 @@ export function CRMApp({
       const result = await crmApi.deleteContacts(targets.map((contact) => contact.id!));
       const deletedIds = new Set(result.ids);
       setContacts((current) => current.filter((contact) => !deletedIds.has(contact.id ?? "")));
+      setAudienceReloadKey((key) => key + 1);
       setSelected([]);
       setConfirmBulkDelete(false);
       recordAudit("Deleted contacts", `${result.deleted} contact records`, "Contacts deleted");
@@ -1195,66 +1220,47 @@ export function CRMApp({
     type: "Dynamic segment" | "Static group",
     rules: FilterRule[],
     members: Contact[],
+    audienceId?: string,
   ) => {
-    const matchesRule = (contact: Contact, rule: FilterRule) => {
-      const values =
-        rule.field === "Category"
-          ? [contact.category]
-          : rule.field === "Location"
-            ? [contact.location]
-            : rule.field === "Status" || rule.field === "Consent status"
-              ? [contact.status]
-              : rule.field === "Interest"
-                ? (contact.interests ?? [])
-                : rule.field === "Tag"
-                  ? (contact.tags ?? [])
-                  : [];
-      const matched = values.some((value) =>
-        rule.operator === "contains"
-          ? value.toLowerCase().includes(rule.value.toLowerCase())
-          : value.toLowerCase() === rule.value.toLowerCase(),
-      );
-      return rule.operator === "is not" ? !matched : matched;
-    };
-    const resolvedMembers =
-      type === "Dynamic segment"
-        ? contacts.filter(
-            (contact) =>
-              contact.status === "Subscribed" &&
-              rules
-                .filter((rule) => rule.value)
-                .every((rule) => matchesRule(contact, rule)),
-          )
-        : members;
+    const resolvedMembers = type === "Static group" ? members : [];
     const contactIds = type === "Static group" ? resolvedMembers.map((contact) => contact.id).filter((id): id is string => Boolean(id)) : [];
-    if (type === "Static group" && contactIds.length !== resolvedMembers.length) {
+    if (!audienceId && type === "Static group" && contactIds.length !== resolvedMembers.length) {
       notify("Some selected contacts are not synced with the CRM API. Refresh contacts and retry.");
       return;
     }
     let savedAudience;
     try {
-      savedAudience = await crmApi.createAudience({
+      const payload = {
         name,
-        type: type === "Dynamic segment" ? "dynamic" : "static",
+        type: type === "Dynamic segment" ? "dynamic" as const : "static" as const,
         description: type === "Dynamic segment" ? `${rules.length} saved conditions` : `${resolvedMembers.length} selected contacts`,
-        rules,
-        contactIds,
-      });
+        rules: type === "Dynamic segment" ? rules : [],
+        ...(!audienceId && type === "Static group" ? { contactIds } : {}),
+      };
+      savedAudience = audienceId
+        ? await crmApi.updateAudience(audienceId, payload)
+        : await crmApi.createAudience(payload);
+      const detail = await crmApi.getAudience(savedAudience.id);
+      const detailMembers = detail.members.map((member) => contactFromApi(member.contact) as Contact);
+      const record = audienceRecordFromApi(detail, detailMembers);
+      setActiveAudience(record);
+      setAudienceDrafts((current) => audienceId
+        ? current.map((audience) => audience.id === audienceId
+          ? { ...audience, id: record.id, name: record.name, type: record.type, description: record.description, rules: record.rules, members: detailMembers, memberCount: Number(record.count), updatedAt: detail.updatedAt }
+          : audience)
+        : [{ id: record.id, name: record.name, type: record.type, description: record.description, rules: record.rules, members: detailMembers, memberCount: Number(record.count), updatedAt: detail.updatedAt }, ...current]);
     } catch (error) {
-      notify(`Could not save audience: ${error instanceof Error ? error.message : "API error"}`);
+      notify(`Could not ${audienceId ? "update" : "save"} audience: ${error instanceof Error ? error.message : "API error"}`);
       return;
     }
-    setAudienceDrafts((current) => [
-      { id: savedAudience.id, name, type, rules, members: resolvedMembers, memberCount: savedAudience.memberCount ?? resolvedMembers.length },
-      ...current,
-    ]);
     recordAudit(
-      "Created audience",
-      `${name} · ${type} · ${resolvedMembers.length} matching contacts · ${rules.length} conditions`,
-      "Audience draft",
+      audienceId ? "Updated audience" : "Created audience",
+      `${name} · ${type} · ${savedAudience.memberCount ?? resolvedMembers.length} contacts · ${rules.length} conditions`,
+      audienceId ? "Audience updated" : "Audience created",
     );
     setModal("");
-    notify(`${name} saved to the CRM with ${type === "Static group" ? resolvedMembers.length : resolvedMembers.length} matching contacts`);
+    setAudienceEditSeed(null);
+    notify(`${name} ${audienceId ? "updated" : "saved"} with ${savedAudience.memberCount ?? resolvedMembers.length} contacts`);
   };
   const openAudienceBuilder = (members: Contact[] = []) => {
     setSegmentSeedContacts(members);
@@ -1267,28 +1273,55 @@ export function CRMApp({
     go("Email campaigns");
     setModal("email");
   };
-  const openAudienceDetails = async (audience: AudienceRecord) => {
-    window.history.pushState({}, "", `/audiences/${encodeURIComponent(audience.name)}`);
+  const openAudienceDetails = (audience: AudienceRecord) => {
+    window.history.pushState({}, "", `/audiences/${encodeURIComponent(audience.id)}`);
     setActiveAudience(audience);
-    if (audience.id) {
-      try {
-        const saved = await crmApi.getAudience(audience.id);
-        const rules = typeof saved.rules === "string" ? JSON.parse(saved.rules) as FilterRule[] : saved.rules;
-        setActiveAudience({
-          ...audience,
-          id: saved.id,
-          description: saved.description ?? audience.description,
-          count: String(saved.members.length),
-          rules,
-          members: saved.members.map((member) => contactFromApi(member.contact) as Contact),
-        });
-      } catch (error) {
-        notify(`Could not load audience details: ${error instanceof Error ? error.message : "API error"}`);
-      }
-    }
+    setAudienceProfileLoading(true);
+    setAudienceProfileError("");
     setPage("Audience profile");
     setSelected([]);
     recordAudit("Viewed audience details", audience.name, "Audience viewed");
+  };
+  const refreshAudience = async (id: string) => {
+    const saved = await crmApi.getAudience(id);
+    const members = saved.members.map((member) => contactFromApi(member.contact) as Contact);
+    const record = audienceRecordFromApi(saved, members);
+    setActiveAudience(record);
+    setAudienceDrafts((current) => current.map((audience) => audience.id === id
+      ? { ...audience, name: record.name, type: record.type, description: record.description, rules: record.rules, members, memberCount: Number(record.count), updatedAt: saved.updatedAt }
+      : audience));
+  };
+  const addMembersToAudience = async (id: string, contactIds: string[]) => {
+    try {
+      const result = await crmApi.addAudienceMembers(id, contactIds);
+      await refreshAudience(id);
+      notify(`${result.added} contact${result.added === 1 ? "" : "s"} added to the audience`);
+    } catch (error) {
+      notify(`Could not add audience members: ${error instanceof Error ? error.message : "API error"}`);
+      throw error;
+    }
+  };
+  const removeAudienceMember = async (id: string, contactId: string) => {
+    try {
+      await crmApi.removeAudienceMember(id, contactId);
+      await refreshAudience(id);
+      notify("Contact removed from the audience");
+    } catch (error) {
+      notify(`Could not remove audience member: ${error instanceof Error ? error.message : "API error"}`);
+    }
+  };
+  const deleteActiveAudience = async () => {
+    if (!activeAudience) return;
+    try {
+      await crmApi.deleteAudience(activeAudience.id);
+      setAudienceDrafts((current) => current.filter((audience) => audience.id !== activeAudience.id));
+      recordAudit("Deleted audience", activeAudience.name, "Audience deleted");
+      setActiveAudience(null);
+      go("Audiences");
+      notify(`${activeAudience.name} deleted`);
+    } catch (error) {
+      notify(`Could not delete audience: ${error instanceof Error ? error.message : "API error"}`);
+    }
   };
   const createCategory = async (name: string) => {
     try {
@@ -1318,6 +1351,7 @@ export function CRMApp({
           : contact,
       ),
     );
+    setAudienceReloadKey((key) => key + 1);
     setAudienceDrafts((current) =>
       current.map((audience) => ({
         ...audience,
@@ -1362,6 +1396,7 @@ export function CRMApp({
           : contact,
       ),
     );
+    setAudienceReloadKey((key) => key + 1);
     setAudienceDrafts((current) =>
       current.map((audience) => ({
         ...audience,
@@ -1689,6 +1724,7 @@ export function CRMApp({
           const persistedPartial = importedContacts.map((contact) => contactFromApi(contact) as Contact);
           if (persistedPartial.length) {
             setContacts((current) => [...persistedPartial, ...current]);
+            setAudienceReloadKey((key) => key + 1);
             setCategories((current) => Array.from(new Set([...current, ...persistedPartial.map((contact) => contact.category)])));
             setModal("");
             notify(`${persistedPartial.length} contacts imported before the import stopped: ${error instanceof Error ? error.message : "API error"}. You can retry the file; existing emails will be skipped.`);
@@ -1698,6 +1734,7 @@ export function CRMApp({
         }
         const persisted = importedContacts.map((contact) => contactFromApi(contact) as Contact);
         setContacts((current) => [...persisted, ...current]);
+        setAudienceReloadKey((key) => key + 1);
         setCategories((current) => Array.from(new Set([...current, ...persisted.map((contact) => contact.category)])));
         const totalDuplicates = duplicateCount + apiSkipped;
         recordAudit(
@@ -2180,19 +2217,33 @@ export function CRMApp({
           {page === "Audiences" && (
             <AudiencesPreview
               drafts={audienceDrafts}
-              setModal={() => openAudienceBuilder()}
+              loading={audienceLoading}
+              error={audienceError}
+              retry={() => setAudienceReloadKey((key) => key + 1)}
+              setModal={() => { setAudienceEditSeed(null); openAudienceBuilder(); }}
               onView={openAudienceDetails}
               openCampaign={openCampaignForAudience}
             />
           )}
-          {page === "Audience profile" && activeAudience && (
+          {page === "Audience profile" && audienceProfileLoading && (
+            <div className="empty-state"><LoaderCircle size={20} className="auth-spinner" /><b>Loading audience</b><span>Fetching saved audience rules and members.</span></div>
+          )}
+          {page === "Audience profile" && audienceProfileError && (
+            <div className="empty-state" role="alert"><Activity size={20} /><b>Audience could not be loaded</b><span>{audienceProfileError}</span><button className="btn secondary" onClick={() => setAudienceReloadKey((key) => key + 1)}>Retry</button></div>
+          )}
+          {page === "Audience profile" && activeAudience && !audienceProfileLoading && !audienceProfileError && (
             <AudienceProfile
               audience={activeAudience}
+              contacts={contacts}
               onBack={() => go("Audiences")}
               openCampaign={openCampaignForAudience}
+              onEdit={() => { setAudienceEditSeed(activeAudience); setSegmentSeedContacts(activeAudience.members); setModal("edit-audience"); }}
+              onDelete={deleteActiveAudience}
+              onAddMembers={(ids) => addMembersToAudience(activeAudience.id, ids)}
+              onRemoveMember={(contactId) => removeAudienceMember(activeAudience.id, contactId)}
             />
           )}
-          {page === "Audience profile" && !activeAudience && (
+          {page === "Audience profile" && !activeAudience && !audienceProfileLoading && !audienceProfileError && (
             <PageHeading
               eyebrow="AUDIENCES"
               title="Audience not found"
@@ -2293,6 +2344,8 @@ export function CRMApp({
             setModal("");
             setCampaignAudienceSeed("");
             setCampaignTemplateSeed(null);
+            setAudienceEditSeed(null);
+            setSegmentSeedContacts([]);
           }}
           save={addContact}
           saveContact={modal === "edit-contact" ? updateContact : addContact}
@@ -2301,19 +2354,16 @@ export function CRMApp({
           categories={categories}
           saveDraft={addCampaignDraft}
           saveAudience={addAudienceDraft}
-          initialMembers={segmentSeedContacts}
+          initialMembers={modal === "edit-audience" ? (audienceEditSeed?.members ?? []) : segmentSeedContacts}
+          initialAudienceRecord={modal === "edit-audience" ? audienceEditSeed : null}
           initialAudience={campaignAudienceSeed}
           audienceOptions={[
-            ...audienceSamples.map(([name, , description, count]) => ({
-              name,
-              detail: `${count} contacts · ${description}`,
-            })),
             ...audienceDrafts.map((audience) => ({
               name: audience.name,
               detail:
                 audience.type === "Static group"
-                  ? `${audience.members.length} saved contacts`
-                  : `${audience.rules.length} saved conditions · reach calculated when connected`,
+                  ? `${audience.memberCount ?? audience.members.length} saved contacts`
+                  : `${audience.memberCount ?? 0} matching contacts · ${audience.rules.length} conditions`,
             })),
           ]}
           initialTemplate={campaignTemplateSeed}
@@ -3532,327 +3582,88 @@ function CampaignPageFunctional({
     </>
   );
 }
-const audienceSamples = [
-  [
-    "Cybersecurity interest",
-    "Dynamic segment",
-    "Contacts interested in cybersecurity training",
-    "342",
-    "Updated 2 hours ago",
-    "violet",
-  ],
-  [
-    "Lagos alumni network",
-    "Static group",
-    "Alumni based in Lagos",
-    "186",
-    "Updated yesterday",
-    "orange",
-  ],
-  [
-    "November training cohort",
-    "Dynamic segment",
-    "Registered for November programmes",
-    "486",
-    "Updated Nov 10",
-    "blue",
-  ],
-  [
-    "Corporate decision makers",
-    "Dynamic segment",
-    "Corporate clients · Seniority: Manager+",
-    "94",
-    "Updated Nov 08",
-    "green",
-  ],
-  [
-    "Newsletter subscribers",
-    "Static group",
-    "Active email subscribers",
-    "2,104",
-    "Updated Nov 07",
-    "pink",
-  ],
-  [
-    "New prospects",
-    "Dynamic segment",
-    "Added in the last 30 days",
-    "128",
-    "Updated Nov 06",
-    "peach",
-  ],
-] as const;
-function AudienceProfile({
-  audience,
-  onBack,
-  openCampaign,
-}: {
+function AudienceProfile({ audience, contacts, onBack, openCampaign, onEdit, onDelete, onAddMembers, onRemoveMember }: {
   audience: AudienceRecord;
+  contacts: Contact[];
   onBack: () => void;
   openCampaign: (name: string) => void;
+  onEdit: () => void;
+  onDelete: () => Promise<void>;
+  onAddMembers: (contactIds: string[]) => Promise<void>;
+  onRemoveMember: (contactId: string) => Promise<void>;
 }) {
-  const reachLabel = audience.isSample
-    ? "Illustrative reach"
-    : audience.type === "Static group"
-      ? "Saved members"
-      : "Estimated reach";
+  const [addingMembers, setAddingMembers] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const memberIds = new Set(audience.members.map((member) => member.id).filter(Boolean));
+  const availableContacts = contacts.filter((contact) => contact.id && !memberIds.has(contact.id));
+  const saveMembers = async () => {
+    if (!selectedIds.length) return;
+    setBusy(true);
+    try {
+      await onAddMembers(selectedIds);
+      setSelectedIds([]);
+      setAddingMembers(false);
+    } catch {
+      // The parent displays API errors; preserve selection so it can be retried.
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="audience-profile-page">
-      <PageHeading
-        eyebrow="AUDIENCE DETAILS"
-        title={audience.name}
-        desc="Review this audience’s definition and membership before using it."
-        action={
-          <>
-            <button className="btn secondary" onClick={onBack}>
-              <ChevronLeft size={16} /> Back to audiences
-            </button>
-            <button
-              className="btn primary"
-              onClick={() => openCampaign(audience.name)}
-            >
-              <Send size={15} /> Use in campaign
-            </button>
-          </>
-        }
-      />
+      <PageHeading eyebrow="AUDIENCE DETAILS" title={audience.name} desc="Review this audience’s definition and membership before using it." action={<>
+        <button className="btn secondary" onClick={onBack}><ChevronLeft size={16} /> Back to audiences</button>
+        <button className="btn secondary" onClick={onEdit}><SlidersHorizontal size={15} /> Edit audience</button>
+        <button className="btn danger-quiet" onClick={() => setConfirmDelete(true)}><Trash2 size={15} /> Delete</button>
+        <button className="btn primary" onClick={() => openCampaign(audience.name)}><Send size={15} /> Use in campaign</button>
+      </>} />
       <section className="audience-profile-hero">
-        <div className={`audience-card-icon ${audience.tone}`}>
-          <Users size={21} />
-        </div>
-        <div className="audience-profile-copy">
-          <div className="contact-hero-name">
-            <h2>{audience.name}</h2>
-            <Badge
-              tone={audience.type === "Dynamic segment" ? "Dynamic" : "neutral"}
-            >
-              {audience.type}
-            </Badge>
-            {audience.isSample && <Badge tone="neutral">Sample</Badge>}
-          </div>
-          <p>{audience.description}</p>
-          <small>Last updated · {audience.updated}</small>
-        </div>
-        <div className="audience-reach">
-          <small>{reachLabel}</small>
-          <strong>{audience.count}</strong>
-          <span>contacts</span>
-        </div>
+        <div className={`audience-card-icon ${audience.tone}`}><Users size={21} /></div>
+        <div className="audience-profile-copy"><div className="contact-hero-name"><h2>{audience.name}</h2><Badge tone={audience.type === "Dynamic segment" ? "Dynamic" : "neutral"}>{audience.type}</Badge></div><p>{audience.description || "No description provided."}</p><small>Last updated · {audience.updated}</small></div>
+        <div className="audience-reach"><small>{audience.type === "Static group" ? "Saved members" : "Current matching contacts"}</small><strong>{audience.count}</strong><span>contacts</span></div>
       </section>
       <div className="audience-profile-grid">
-        <section className="panel">
-          <div className="panel-title">
-            <div>
-              <h3>Audience definition</h3>
-              <p>{audience.type} criteria</p>
-            </div>
-            <Filter size={18} />
-          </div>
-          {audience.rules.length > 0 ? (
-            <div className="audience-rules-list">
-              {audience.rules.map((rule, index) => (
-                <div className="audience-rule" key={`${rule.field}-${index}`}>
-                  <span>{rule.field}</span>
-                  <Badge>{rule.operator}</Badge>
-                  <b>{rule.value}</b>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="audience-definition-copy">
-              <div className="audience-rule-icon">
-                <ListFilter size={16} />
-              </div>
-              <p>{audience.description}</p>
-              <small>
-                {audience.isSample
-                  ? "This sample definition is descriptive; its matching contact records are not included in the preview."
-                  : "No matching contacts are calculated for dynamic segments until segment evaluation is connected."}
-              </small>
-            </div>
-          )}
-          {audience.isSample && (
-            <div className="audience-sample-note">
-              <Sparkles size={15} /> Reach and update details are illustrative
-              sample values.
-            </div>
-          )}
+        <section className="panel"><div className="panel-title"><div><h3>Audience definition</h3><p>{audience.type} criteria</p></div><Filter size={18} /></div>
+          {audience.rules.length ? <div className="audience-rules-list">{audience.rules.map((rule, index) => <div className="audience-rule" key={`${rule.field}-${index}`}><span>{rule.field}</span><Badge>{rule.operator}</Badge><b>{rule.value}</b></div>)}</div> : <div className="audience-definition-copy"><div className="audience-rule-icon"><ListFilter size={16} /></div><p>{audience.description || "No rules are saved."}</p><small>{audience.type === "Dynamic segment" ? "Edit this audience to add matching rules." : "Static audiences use saved contact membership."}</small></div>}
         </section>
-        <section className="panel audience-members-panel">
-          <div className="panel-title">
-            <div>
-              <h3>Members</h3>
-              <p>
-                {audience.type === "Static group"
-                  ? "Contacts saved in this group"
-                  : "Contacts matching the segment"}
-              </p>
-            </div>
-            <Users size={18} />
-          </div>
-          {audience.members.length > 0 ? (
-            <div className="audience-member-list">
-              {audience.members.map((member) => (
-                <div className="audience-member" key={member.email}>
-                  <div className={`avatar ${member.color}`}>
-                    {member.initials}
-                  </div>
-                  <span>
-                    <b>{member.name}</b>
-                    <small>{member.email}</small>
-                  </span>
-                  <Badge>{member.category}</Badge>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="profile-empty-activity audience-empty-members">
-              <div>
-                <Users size={18} />
-              </div>
-              <b>Member records aren’t available here</b>
-              <p>
-                {audience.isSample
-                  ? "The sample audience includes an illustrative reach count, but not its underlying contact list."
-                  : audience.type === "Dynamic segment"
-                    ? "Matching contacts will appear after live segment evaluation is connected."
-                    : "Add contacts to this static group from the contacts list."}
-              </p>
-            </div>
-          )}
+        <section className="panel audience-members-panel"><div className="panel-title"><div><h3>Members</h3><p>{audience.type === "Static group" ? "Contacts saved in this group" : "Contacts currently matching these rules"}</p></div>{audience.type === "Static group" && <button className="btn secondary" onClick={() => setAddingMembers((value) => !value)}><Plus size={15} /> Add contacts</button>}</div>
+          {addingMembers && audience.type === "Static group" && <div className="audience-add-members">
+            {availableContacts.length ? availableContacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={Boolean(contact.id && selectedIds.includes(contact.id))} onChange={() => contact.id && setSelectedIds((current) => current.includes(contact.id!) ? current.filter((id) => id !== contact.id) : [...current, contact.id!])} /><span><b>{contact.name}</b><small>{contact.email}</small></span></label>) : <p>{contacts.length ? "All available contacts are already in this group." : "Add contacts to the CRM before building audience membership."}</p>}
+            <div className="audience-add-actions"><button className="btn secondary" onClick={() => { setAddingMembers(false); setSelectedIds([]); }}>Cancel</button><button className="btn primary" disabled={!selectedIds.length || busy} onClick={() => void saveMembers()}>{busy ? "Saving…" : `Add ${selectedIds.length || "selected"}`}</button></div>
+          </div>}
+          {audience.members.length ? <div className="audience-member-list">{audience.members.map((member) => <div className="audience-member" key={member.id ?? member.email}><div className={`avatar ${member.color}`}>{member.initials}</div><span><b>{member.name}</b><small>{member.email}</small></span><Badge>{member.category}</Badge>{audience.type === "Static group" && member.id && <button className="icon-btn" aria-label={`Remove ${member.name} from audience`} disabled={busy} onClick={() => void onRemoveMember(member.id!)}><X size={14} /></button>}</div>)}</div> : <div className="profile-empty-activity audience-empty-members"><div><Users size={18} /></div><b>No contacts in this audience</b><p>{audience.type === "Dynamic segment" ? "No current contacts match these rules. Edit the audience to adjust its criteria." : "Add contacts to this static group to build its membership."}</p></div>}
         </section>
       </div>
+      {confirmDelete && <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="delete-audience-title"><div className="category-confirm-card"><div className="danger-icon"><Trash2 size={17} /></div><h2 id="delete-audience-title">Delete “{audience.name}”?</h2><p>This permanently deletes the audience and its saved membership. Contact records remain in your CRM.</p><div className="category-confirm-actions"><button className="btn secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep audience</button><button className="btn danger" disabled={busy} onClick={() => { setBusy(true); void onDelete().finally(() => setBusy(false)); }}>Delete audience</button></div></div></div>}
     </div>
   );
 }
-function AudiencesPreview({
-  drafts,
-  setModal,
-  onView,
-  openCampaign,
-}: {
+function AudiencesPreview({ drafts, loading, error, retry, setModal, onView, openCampaign }: {
   drafts: AudienceDraft[];
+  loading: boolean;
+  error: string;
+  retry: () => void;
   setModal: (s: string) => void;
   onView: (audience: AudienceRecord) => void;
   openCampaign: (name: string) => void;
 }) {
   const [kind, setKind] = useState("All audiences");
-  const draftRows = drafts.map(
-    (d) =>
-      [
-        d.name,
-        d.type,
-        d.type === "Static group"
-          ? `${d.memberCount ?? d.members.length} contacts saved in this group.`
-          : `${d.rules.length} audience conditions saved; matching uses current contact records.`,
-        String(d.memberCount ?? d.members.length),
-        "Saved to CRM",
-        "violet",
-      ] as const,
-  );
-  const allRows = [...audienceSamples, ...draftRows];
-  const shown = allRows.filter(
-    (row) =>
-      kind === "All audiences" ||
-      (kind === "Dynamic segments"
-        ? row[1] === "Dynamic segment"
-        : row[1] === "Static group"),
-  );
-  return (
-    <>
-      <PageHeading
-        eyebrow="KNOW YOUR AUDIENCE · SAMPLE DATA"
-        title="Audiences"
-        desc="Build meaningful groups and reach the right people every time."
-        action={
-          <button className="btn primary" onClick={() => setModal("segment")}>
-            <Plus size={17} /> Create audience
-          </button>
-        }
-      />
-      <div className="audience-highlight">
-        <div className="audience-highlight-icon">
-          <Users size={23} />
-        </div>
-        <div>
-          <b>Better targeting, stronger connections.</b>
-          <p>
-            Combine filters to build dynamic segments that stay up to date as
-            your contacts change.
-          </p>
-        </div>
-        <span className="text-link">Static group · dynamic segment</span>
-      </div>
-      <div className="section-row audience-section">
-        <div>
-          <h2 className="section-title">
-            Audiences <span className="light-count">{shown.length}</span>
-          </h2>
-          <p className="section-subtitle">
-            Sample audience definitions and local drafts for this preview.
-          </p>
-        </div>
-        <select
-          className="period-select"
-          aria-label="Filter audience type"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-        >
-          <option>All audiences</option>
-          <option>Dynamic segments</option>
-          <option>Static groups</option>
-        </select>
-      </div>
-      <div className="audience-grid">
-        {shown.map(([name, type, desc, count, updated, tone]) => (
-          <article className="panel audience-card" key={name}>
-            <div className="audience-card-top">
-              <div className={`audience-card-icon ${tone}`}>
-                <Users size={18} />
-              </div>
-              <Badge tone={type === "Dynamic segment" ? "Dynamic" : "neutral"}>
-                {type}
-              </Badge>
-            </div>
-            <h3>{name}</h3>
-            <p>{desc}</p>
-            <div className="audience-card-bottom">
-              <span>
-                <b>{count}</b> contacts
-              </span>
-              <small>{updated}</small>
-            </div>
-            <div className="audience-card-actions">
-              <button
-                onClick={() => {
-                  const draft = drafts.find((item) => item.name === name);
-                  onView({
-                    id: draft?.id,
-                    name,
-                    type,
-                    description: desc,
-                    count,
-                    updated,
-                    tone,
-                    rules: draft?.rules ?? [],
-                    members: draft?.members ?? [],
-                    isSample: !draft,
-                  });
-                }}
-              >
-                View audience <ArrowUpRight size={14} />
-              </button>
-              <button onClick={() => openCampaign(name)}>
-                Use in campaign <ChevronRight size={14} />
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </>
-  );
-}
-const templateSamples = [
+  const [search, setSearch] = useState("");
+  const shown = drafts.filter((audience) => (kind === "All audiences" || (kind === "Dynamic segments" ? audience.type === "Dynamic segment" : audience.type === "Static group")) && `${audience.name} ${audience.description}`.toLowerCase().includes(search.toLowerCase()));
+  return <>
+    <PageHeading eyebrow="KNOW YOUR AUDIENCE" title="Audiences" desc="Build meaningful groups and reach the right people every time." action={<button className="btn primary" onClick={() => setModal("segment")}><Plus size={17} /> Create audience</button>} />
+    <div className="audience-highlight"><div className="audience-highlight-icon"><Users size={23} /></div><div><b>Better targeting, stronger connections.</b><p>Create dynamic segments that update from contact records or maintain static groups by hand.</p></div><span className="text-link">Static group · dynamic segment</span></div>
+    <div className="section-row audience-section"><div><h2 className="section-title">Audiences <span className="light-count">{drafts.length}</span></h2><p className="section-subtitle">Saved groups and dynamic segments from your CRM.</p></div><div className="audience-list-controls"><div className="search-input"><Search size={15} /><input aria-label="Search audiences" placeholder="Search audiences" value={search} onChange={(event) => setSearch(event.target.value)} /></div><select className="period-select" aria-label="Filter audience type" value={kind} onChange={(event) => setKind(event.target.value)}><option>All audiences</option><option>Dynamic segments</option><option>Static groups</option></select></div></div>
+    <div className="audience-grid">
+      {loading ? <div className="empty-state"><LoaderCircle size={20} className="auth-spinner" /><b>Loading audiences</b><span>Fetching saved groups and segments from the API.</span></div> : error ? <div className="empty-state" role="alert"><Activity size={20} /><b>Audiences could not be loaded</b><span>{error}</span><button className="btn secondary" onClick={retry}>Retry</button></div> : shown.length ? shown.map((audience, index) => {
+        const record = audienceRecordFromApi({ id: audience.id, name: audience.name, type: audience.type === "Dynamic segment" ? "dynamic" : "static", description: audience.description, rules: audience.rules, memberCount: audience.memberCount ?? audience.members.length, createdAt: audience.updatedAt, updatedAt: audience.updatedAt }, audience.members);
+        return <article className="panel audience-card" key={audience.id}><div className="audience-card-top"><div className={`audience-card-icon ${["violet", "orange", "blue", "green", "pink", "peach"][index % 6]}`}><Users size={18} /></div><Badge tone={audience.type === "Dynamic segment" ? "Dynamic" : "neutral"}>{audience.type}</Badge></div><h3>{audience.name}</h3><p>{audience.description || (audience.type === "Static group" ? "A manually maintained group of contacts." : `${audience.rules.length} saved matching conditions.`)}</p><div className="audience-card-bottom"><span><b>{audience.memberCount ?? audience.members.length}</b> contacts</span><small>Updated {new Date(audience.updatedAt).toLocaleDateString()}</small></div><div className="audience-card-actions"><button onClick={() => onView(record)}>View audience <ArrowUpRight size={14} /></button><button onClick={() => openCampaign(audience.name)}>Use in campaign <ChevronRight size={14} /></button></div></article>;
+      }) : <div className="empty-state"><Users size={20} /><b>{drafts.length ? "No audiences match this search" : "No audiences yet"}</b><span>{drafts.length ? "Change the search or audience type filter." : "Create a static group or dynamic segment to get started."}</span>{!drafts.length && <button className="btn primary" onClick={() => setModal("segment")}><Plus size={15} /> Create audience</button>}</div>}
+    </div>
+  </>;
+}const templateSamples = [
   [
     "Welcome to Cephas",
     "A warm welcome for new subscribers.",
@@ -5716,6 +5527,7 @@ function ModalDialog({
   recordAudit,
   notify,
   initialAudience,
+  initialAudienceRecord,
   audienceOptions,
   initialTemplate,
   initialMembers,
@@ -5749,7 +5561,9 @@ function ModalDialog({
     type: "Dynamic segment" | "Static group",
     rules: FilterRule[],
     members: Contact[],
+    audienceId?: string,
   ) => void;
+  initialAudienceRecord: AudienceRecord | null;
   initialMembers: Contact[];
   contacts: Contact[];
   saveTemplate: (template: TemplateDraft) => void;
@@ -5794,7 +5608,7 @@ function ModalDialog({
     ]),
     [draggedBlockId, setDraggedBlockId] = useState<string | null>(null),
     [campaignName, setCampaignName] = useState(
-      initialTemplate ? `${initialTemplate.name} campaign` : "",
+      initialAudienceRecord?.name ?? (initialTemplate ? `${initialTemplate.name} campaign` : ""),
     ),
     [subject, setSubject] = useState(initialTemplate?.subject ?? ""),
     [audiences, setAudiences] = useState<string[]>(
@@ -5821,14 +5635,21 @@ function ModalDialog({
     [objective, setObjective] = useState(initialTemplate?.objective ?? ""),
     [segmentType, setSegmentType] = useState<
       "Dynamic segment" | "Static group"
-    >(initialMembers.length > 0 ? "Static group" : "Dynamic segment"),
+    >(initialAudienceRecord?.type ?? (initialMembers.length > 0 ? "Static group" : "Dynamic segment")),
     [templateChannel, setTemplateChannel] = useState<
       "Email" | "SMS" | "WhatsApp"
     >(initialTemplate?.channel ?? "Email"),
-    [rules, setRules] = useState<FilterRule[]>([
+    [rules, setRules] = useState<FilterRule[]>(initialAudienceRecord?.rules.length ? initialAudienceRecord.rules : [
       { field: "Category", operator: "is", value: "" },
     ]),
     [validation, setValidation] = useState("");
+  useEffect(() => {
+    if (!initialAudienceRecord) return;
+    setCampaignName(initialAudienceRecord.name);
+    setSegmentType(initialAudienceRecord.type);
+    setRules(initialAudienceRecord.rules.length ? initialAudienceRecord.rules : [{ field: "Category", operator: "is", value: "" }]);
+    setValidation("");
+  }, [initialAudienceRecord]);
   useEffect(() => {
     if (initialTemplate) {
       setCampaignName(`${initialTemplate.name} campaign`);
@@ -5877,8 +5698,8 @@ function ModalDialog({
         ? "Import contacts"
         : kind === "edit-contact"
           ? "Edit contact"
-          : kind === "segment"
-            ? "Create an audience"
+          : kind === "segment" || kind === "edit-audience"
+            ? kind === "edit-audience" ? "Edit audience" : "Create an audience"
             : kind === "template"
               ? "Create a template"
               : kind === "sms"
@@ -6079,7 +5900,7 @@ function ModalDialog({
       );
       return;
     }
-    if (kind === "segment") {
+    if (kind === "segment" || kind === "edit-audience") {
       if (!campaignName.trim()) {
         setValidation("Enter an audience name.");
         return;
@@ -6087,7 +5908,8 @@ function ModalDialog({
       if (
         audienceChoices.some(
           (item) =>
-            item.name.toLowerCase() === campaignName.trim().toLowerCase(),
+            item.name.toLowerCase() === campaignName.trim().toLowerCase() &&
+            item.name.toLowerCase() !== initialAudienceRecord?.name.toLowerCase(),
         )
       ) {
         setValidation(
@@ -6107,6 +5929,7 @@ function ModalDialog({
         segmentType,
         segmentType === "Dynamic segment" ? rules : [],
         initialMembers,
+        initialAudienceRecord?.id,
       );
       return;
     }
@@ -6150,7 +5973,7 @@ function ModalDialog({
             <p className="eyebrow">
               {kind === "add"
                 ? "CONTACTS"
-                : kind === "segment"
+                : kind === "segment" || kind === "edit-audience"
                   ? "AUDIENCES"
                   : kind === "edit-contact"
                     ? "Edit a contact record"
@@ -6362,7 +6185,7 @@ function ModalDialog({
         ) : (
           <div className="modal-fields">
             <label className="form-label">
-              {kind === "segment"
+              {kind === "segment" || kind === "edit-audience"
                 ? "Audience name"
                 : kind === "template"
                   ? "Template name"
@@ -6371,7 +6194,7 @@ function ModalDialog({
                 value={campaignName}
                 onChange={(e) => setCampaignName(e.target.value)}
                 placeholder={
-                  kind === "segment"
+                  kind === "segment" || kind === "edit-audience"
                     ? "e.g. Lagos alumni"
                     : kind === "template"
                       ? "e.g. Course launch"
@@ -6431,7 +6254,7 @@ function ModalDialog({
                 )}
               </>
             )}
-            {kind === "segment" ? (
+            {kind === "segment" || kind === "edit-audience" ? (
               <>
                 <label className="form-label">
                   Segment type
@@ -6575,14 +6398,12 @@ function ModalDialog({
                       {initialMembers.map((contact) => contact.name).join(", ")}
                     </small>
                     <p className="modal-note">
-                      Membership is saved in this preview; contact links are
-                      session only.
+                      These contacts will be saved as members of the new static audience.
                     </p>
                   </div>
                 ) : (
                   <p className="modal-note">
-                    Save the static group now, then add members from the
-                    contacts table.
+                    Save the static group, then add members from its audience profile.
                   </p>
                 )}
               </>
@@ -7198,8 +7019,8 @@ function ModalDialog({
               ? "Add contact"
               : kind === "import"
                 ? "Import contacts"
-                : kind === "segment"
-                  ? "Save audience"
+                : kind === "segment" || kind === "edit-audience"
+                  ? kind === "edit-audience" ? "Save changes" : "Save audience"
                   : kind === "template"
                     ? "Save template"
                     : scheduleAt

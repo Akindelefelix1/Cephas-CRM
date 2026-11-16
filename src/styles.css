@@ -1319,6 +1319,50 @@ tbody tr:hover {
   display: grid;
   margin-top: 12px;
 }
+.audience-list-controls {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.audience-add-members {
+  display: grid;
+  gap: 4px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfaff;
+}
+.audience-add-members > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  cursor: pointer;
+}
+.audience-add-members > label > span {
+  display: grid;
+  gap: 3px;
+}
+.audience-add-members > label b {
+  color: #4a495d;
+  font-size: 11px;
+}
+.audience-add-members > label small,
+.audience-add-members > p {
+  margin: 0;
+  color: #9291a4;
+  font-size: 10px;
+}
+.audience-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eeedf3;
+}
 .audience-member {
   display: flex;
   align-items: center;
@@ -5311,4 +5355,5 @@ tbody tr:hover {
 @media (max-width: 520px) {
   .auth-card { padding: 28px 22px; }
   .account-logout { min-height: 30px; padding: 0 8px; }
+  .audience-list-controls { align-items: stretch; flex-direction: column; width: 100%; }
 }
