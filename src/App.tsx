@@ -24,6 +24,7 @@ import {
   Layers3,
   LayoutDashboard,
   LifeBuoy,
+  LoaderCircle,
   ListFilter,
   LogOut,
   Mail,
@@ -39,6 +40,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Tag,
+  Trash2,
   TrendingUp,
   Users,
   X,
@@ -358,6 +360,7 @@ type TemplateDraft = {
   excludedContacts?: string[];
 };
 type AudienceRecord = {
+  id?: string;
   name: string;
   type: "Dynamic segment" | "Static group";
   description: string;
@@ -368,91 +371,15 @@ type AudienceRecord = {
   members: Contact[];
   isSample: boolean;
 };
-const initialContacts: Contact[] = [
-  {
-    name: "Amara Okafor",
-    email: "amara.okafor@gmail.com",
-    category: "Student",
-    location: "Lagos, Nigeria",
-    status: "Subscribed",
-    initials: "AO",
-    color: "lavender",
-    date: "Nov 12, 2026",
-  },
-  {
-    name: "Tunde Bakare",
-    email: "t.bakare@outlook.com",
-    category: "Alumni",
-    location: "Abuja, Nigeria",
-    status: "Subscribed",
-    initials: "TB",
-    color: "peach",
-    date: "Nov 11, 2026",
-  },
-  {
-    name: "Nneka Eze",
-    email: "nneka.eze@yahoo.com",
-    category: "Prospect",
-    location: "Port Harcourt, Nigeria",
-    status: "Pending",
-    initials: "NE",
-    color: "mint",
-    date: "Nov 10, 2026",
-  },
-  {
-    name: "David Adebayo",
-    email: "d.adebayo@company.ng",
-    category: "Corporate client",
-    location: "Lagos, Nigeria",
-    status: "Subscribed",
-    initials: "DA",
-    color: "blue",
-    date: "Nov 09, 2026",
-  },
-  {
-    name: "Zainab Musa",
-    email: "zainab.musa@gmail.com",
-    category: "Partner",
-    location: "Kano, Nigeria",
-    status: "Unsubscribed",
-    initials: "ZM",
-    color: "pink",
-    date: "Nov 08, 2026",
-  },
-  {
-    name: "Chidi Nwosu",
-    email: "chidi.nwosu@gmail.com",
-    category: "Student",
-    location: "Enugu, Nigeria",
-    status: "Subscribed",
-    initials: "CN",
-    color: "yellow",
-    date: "Nov 07, 2026",
-  },
-  {
-    name: "Ifeoma Obi",
-    email: "ifeoma.obi@icloud.com",
-    category: "Alumni",
-    location: "Lagos, Nigeria",
-    status: "Subscribed",
-    initials: "IO",
-    color: "peach",
-    date: "Nov 06, 2026",
-  },
-  {
-    name: "Emeka James",
-    email: "emeka.james@gmail.com",
-    category: "Subscriber",
-    location: "Ibadan, Nigeria",
-    status: "Pending",
-    initials: "EJ",
-    color: "blue",
-    date: "Nov 05, 2026",
-  },
-];
-const initialCategories = Array.from(
-  new Set(initialContacts.map((contact) => contact.category)),
-);
+type AudienceDraft = {
+  id?: string;
+  name: string;
+  type: "Dynamic segment" | "Static group";
+  rules: FilterRule[];
+  members: Contact[];
+  memberCount?: number;
+};
+const initialCategories = ["Uncategorized"];
 const navGroups: {
   label: string;
   items: { name: Page; icon: typeof Grid2X2; badge?: string }[];
@@ -636,22 +563,18 @@ export function CRMApp({
     .join("");
   const toastTimer = useRef<number | undefined>(undefined);
   const [page, setPage] = useState<Page>(() => pageForPath(window.location.pathname)),
-    [contacts, setContacts] = useState<Contact[]>(initialContacts),
-    [categories, setCategories] = useState(initialCategories),
+    [contacts, setContacts] = useState<Contact[]>([]),
+    [categories, setCategories] = useState<string[]>(initialCategories),
+    [contactsLoading, setContactsLoading] = useState(true),
+    [contactsError, setContactsError] = useState(""),
+    [contactsReloadKey, setContactsReloadKey] = useState(0),
     [activeContact, setActiveContact] = useState<Contact | null>(null),
     [campaignRecords, setCampaignRecords] = useState<Campaign[]>(campaigns),
     [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>([]),
     [campaignTemplateSeed, setCampaignTemplateSeed] =
       useState<TemplateDraft | null>(null),
     [activeAudience, setActiveAudience] = useState<AudienceRecord | null>(null),
-    [audienceDrafts, setAudienceDrafts] = useState<
-      {
-        name: string;
-        type: "Dynamic segment" | "Static group";
-        rules: FilterRule[];
-        members: Contact[];
-      }[]
-    >([]),
+    [audienceDrafts, setAudienceDrafts] = useState<AudienceDraft[]>([]),
     [segmentSeedContacts, setSegmentSeedContacts] = useState<Contact[]>([]),
     [campaignAudienceSeed, setCampaignAudienceSeed] = useState(""),
     [auditEvents, setAuditEvents] = useState<AuditEvent[]>(auditRows),
@@ -660,27 +583,55 @@ export function CRMApp({
     [statusFilter, setStatusFilter] = useState("All statuses"),
     [sortBy, setSortBy] = useState("Recently added"),
     [selected, setSelected] = useState<string[]>([]),
+    [contactsPage, setContactsPage] = useState(0),
+    [contactToDelete, setContactToDelete] = useState<Contact | null>(null),
+    [confirmBulkDelete, setConfirmBulkDelete] = useState(false),
     [toast, setToast] = useState(""),
     [modal, setModal] = useState(() => normalizePath(window.location.pathname).toLowerCase() === "/contacts/new" ? "add" : ""),
     [pendingDuplicate, setPendingDuplicate] = useState<{
       existing: Contact;
       incoming: Contact;
-      sourceEmail?: string;
+      sourceId?: string;
     } | null>(null),
     [mobile, setMobile] = useState(false),
     [sidebarCollapsed, setSidebarCollapsed] = useState(false),
     [period, setPeriod] = useState("Last 30 days");
   useEffect(() => {
     let active = true;
-    crmApi.listContacts().then((rows) => {
+    setContactsLoading(true);
+    setContactsError("");
+    Promise.all([crmApi.listContacts(), crmApi.listCategories()])
+      .then(([rows, categoryNames]) => {
+        if (!active) return;
+        const loaded = rows.map((row) => contactFromApi(row) as Contact);
+        setContacts(loaded);
+        setCategories(Array.from(new Set(["Uncategorized", ...categoryNames, ...loaded.map((contact) => contact.category)])));
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setContactsError(error instanceof Error ? error.message : "Could not connect to the CRM API");
+      })
+      .finally(() => { if (active) setContactsLoading(false); });
+    return () => { active = false; };
+  }, [contactsReloadKey]);
+  useEffect(() => {
+    let active = true;
+    crmApi.listAudiences().then((rows) => {
       if (!active) return;
-      const loaded = rows.map((row) => contactFromApi(row) as Contact);
-      setContacts(loaded);
-      setCategories(Array.from(new Set(loaded.map((contact) => contact.category))));
-    }).catch((error: unknown) => {
-      if (!active) return;
-      notify(`Could not load contacts from the CRM API: ${error instanceof Error ? error.message : "connection failed"}`);
-    });
+      const saved = rows.map((row): AudienceDraft => {
+        let rules: FilterRule[] = [];
+        try { rules = typeof row.rules === "string" ? JSON.parse(row.rules) as FilterRule[] : row.rules; } catch { /* Ignore malformed legacy rule JSON. */ }
+        return {
+          id: row.id,
+          name: row.name,
+          type: row.type === "dynamic" ? "Dynamic segment" : "Static group",
+          rules,
+          members: [],
+          memberCount: row.memberCount,
+        };
+      });
+      setAudienceDrafts(saved);
+    }).catch(() => { /* Audience lists stay independent of contact loading. */ });
     return () => { active = false; };
   }, []);
   const toApiContact = (contact: Contact): Omit<ApiContact, "id" | "createdAt"> => {
@@ -689,6 +640,7 @@ export function CRMApp({
       firstName: firstName || contact.email.split("@")[0],
       lastName: lastNames.join(" ") || null,
       email: contact.email,
+      alternateEmails: contact.alternateEmails ?? [],
       phone: contact.phone || null,
       organization: contact.organization || null,
       category: contact.category || null,
@@ -729,6 +681,10 @@ export function CRMApp({
   const selectedVisible = selected.filter((email) =>
     filtered.some((c) => c.email === email),
   );
+  const pageSize = 25;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleContacts = filtered.slice(contactsPage * pageSize, (contactsPage + 1) * pageSize);
+  useEffect(() => { setContactsPage(0); }, [query, category, statusFilter, sortBy]);
   const notify = (s: string) => {
     if (toastTimer.current !== undefined) {
       window.clearTimeout(toastTimer.current);
@@ -818,11 +774,12 @@ export function CRMApp({
     const draft = audienceDrafts.find((item) => item.name.toLowerCase() === name.toLowerCase());
     if (draft) {
       setActiveAudience({
+        id: draft.id,
         name: draft.name,
         type: draft.type,
         description: `${draft.rules.length} saved conditions`,
-        count: String(draft.members.length),
-        updated: "Saved in preview",
+        count: String(draft.memberCount ?? draft.members.length),
+        updated: "Saved to CRM",
         tone: "violet",
         rules: draft.rules,
         members: draft.members,
@@ -874,6 +831,7 @@ export function CRMApp({
       const saved = await crmApi.createContact(toApiContact(contact));
       const persisted = contactFromApi(saved) as Contact;
       setContacts((current) => [persisted, ...current]);
+      setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
     } catch (error) {
       notify(`Could not save contact: ${error instanceof Error ? error.message : "API error"}`);
       return;
@@ -902,12 +860,12 @@ export function CRMApp({
       setPendingDuplicate({
         existing: duplicate,
         incoming: contact,
-        sourceEmail: activeContact?.email,
+        sourceId: activeContact?.id,
       });
       setModal("");
       return;
     }
-    const existingContact = contacts.find((item) => item.email === activeContact?.email);
+    const existingContact = contacts.find((item) => item.id === activeContact?.id);
     if (!existingContact?.id) {
       notify("This sample contact is not stored in the CRM yet");
       return;
@@ -921,10 +879,9 @@ export function CRMApp({
     }
     const persisted = contactFromApi(saved) as Contact;
     setContacts((current) =>
-      current.map((item) =>
-        item.email === activeContact?.email ? persisted : item,
-      ),
+      current.map((item) => item.id === existingContact.id ? persisted : item),
     );
+    setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
     setActiveContact(persisted);
     const changes = [
       contact.name !== activeContact?.name ? "name" : "",
@@ -960,7 +917,7 @@ export function CRMApp({
     setModal("");
     notify("Contact updated in the CRM");
   };
-  const mergeDuplicateContact = () => {
+  const mergeDuplicateContact = async () => {
     if (!pendingDuplicate) return;
     const { existing, incoming } = pendingDuplicate;
     const merged: Contact = {
@@ -1000,16 +957,22 @@ export function CRMApp({
               ? "Subscribed"
               : "Pending",
     };
-    setContacts((current) =>
-      current
-        .filter((item) => item.email !== pendingDuplicate.sourceEmail)
-        .map((item) => (item.email === existing.email ? merged : item)),
-    );
-    if (
-      activeContact?.email === existing.email ||
-      activeContact?.email === pendingDuplicate.sourceEmail
-    )
-      setActiveContact(merged);
+    if (!existing.id) {
+      notify("The matching contact has no CRM record ID. Refresh contacts and try again.");
+      return;
+    }
+    try {
+      const saved = await crmApi.mergeContact(existing.id, pendingDuplicate.sourceId, toApiContact(merged));
+      const persisted = contactFromApi(saved) as Contact;
+      setContacts((current) => current
+        .filter((item) => !pendingDuplicate.sourceId || item.id !== pendingDuplicate.sourceId)
+        .map((item) => item.id === existing.id ? persisted : item));
+      setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
+      if (activeContact?.id === existing.id || activeContact?.id === pendingDuplicate.sourceId) setActiveContact(persisted);
+    } catch (error) {
+      notify(`Could not merge contact records: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     recordAudit(
       "Merged duplicate contact",
       `${incoming.name} into ${existing.name} · consent preserved`,
@@ -1020,9 +983,21 @@ export function CRMApp({
       "Duplicate details merged; existing contact identity and consent were preserved",
     );
   };
-  const keepDuplicateSeparate = () => {
+  const keepDuplicateSeparate = async () => {
     if (!pendingDuplicate) return;
-    setContacts((current) => [pendingDuplicate.incoming, ...current]);
+    if (pendingDuplicate.incoming.email.toLowerCase() === pendingDuplicate.existing.email.toLowerCase()) {
+      notify("This email address already belongs to the matching contact. Merge the records instead.");
+      return;
+    }
+    try {
+      const saved = await crmApi.createContact(toApiContact(pendingDuplicate.incoming));
+      const persisted = contactFromApi(saved) as Contact;
+      setContacts((current) => [persisted, ...current]);
+      setCategories((current) => current.includes(persisted.category) ? current : [...current, persisted.category]);
+    } catch (error) {
+      notify(`Could not save separate contact: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     recordAudit(
       "Kept likely duplicate separate",
       `${pendingDuplicate.incoming.name} · ${pendingDuplicate.incoming.email}`,
@@ -1030,6 +1005,49 @@ export function CRMApp({
     );
     setPendingDuplicate(null);
     notify("Contact saved as a separate record");
+  };
+  const removeContact = async (contact: Contact) => {
+    if (!contact.id) {
+      notify("This contact is not linked to an API record. Refresh the list and try again.");
+      return;
+    }
+    try {
+      await crmApi.deleteContact(contact.id);
+      setContacts((current) => current.filter((item) => item.id !== contact.id));
+      setSelected((current) => current.filter((email) => email !== contact.email));
+      recordAudit("Deleted contact", `${contact.name} · ${contact.email}`, "Contact deleted");
+      setContactToDelete(null);
+      if (activeContact?.id === contact.id) {
+        setActiveContact(null);
+        go("Contacts");
+      }
+      notify(`${contact.name} deleted`);
+    } catch (error) {
+      notify(`Could not delete contact: ${error instanceof Error ? error.message : "API error"}`);
+    }
+  };
+  const removeSelectedContacts = async () => {
+    const targets = contacts.filter((contact) => selectedVisible.includes(contact.email));
+    if (!targets.length) {
+      setConfirmBulkDelete(false);
+      return;
+    }
+    if (targets.some((contact) => !contact.id)) {
+      notify("One or more selected contacts are missing API IDs. Refresh the list and try again.");
+      setConfirmBulkDelete(false);
+      return;
+    }
+    try {
+      const result = await crmApi.deleteContacts(targets.map((contact) => contact.id!));
+      const deletedIds = new Set(result.ids);
+      setContacts((current) => current.filter((contact) => !deletedIds.has(contact.id ?? "")));
+      setSelected([]);
+      setConfirmBulkDelete(false);
+      recordAudit("Deleted contacts", `${result.deleted} contact records`, "Contacts deleted");
+      notify(`${result.deleted} contact${result.deleted === 1 ? "" : "s"} deleted`);
+    } catch (error) {
+      notify(`Could not delete selected contacts: ${error instanceof Error ? error.message : "API error"}`);
+    }
   };
   const addCampaignDraft = (
     channel: "Email" | "SMS" | "WhatsApp",
@@ -1169,7 +1187,7 @@ export function CRMApp({
         : `${name} returned to the schedule in this preview`,
     );
   };
-  const addAudienceDraft = (
+  const addAudienceDraft = async (
     name: string,
     type: "Dynamic segment" | "Static group",
     rules: FilterRule[],
@@ -1205,19 +1223,35 @@ export function CRMApp({
                 .every((rule) => matchesRule(contact, rule)),
           )
         : members;
+    const contactIds = type === "Static group" ? resolvedMembers.map((contact) => contact.id).filter((id): id is string => Boolean(id)) : [];
+    if (type === "Static group" && contactIds.length !== resolvedMembers.length) {
+      notify("Some selected contacts are not synced with the CRM API. Refresh contacts and retry.");
+      return;
+    }
+    let savedAudience;
+    try {
+      savedAudience = await crmApi.createAudience({
+        name,
+        type: type === "Dynamic segment" ? "dynamic" : "static",
+        description: type === "Dynamic segment" ? `${rules.length} saved conditions` : `${resolvedMembers.length} selected contacts`,
+        rules,
+        contactIds,
+      });
+    } catch (error) {
+      notify(`Could not save audience: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     setAudienceDrafts((current) => [
-      { name, type, rules, members: resolvedMembers },
+      { id: savedAudience.id, name, type, rules, members: resolvedMembers, memberCount: savedAudience.memberCount ?? resolvedMembers.length },
       ...current,
     ]);
     recordAudit(
-      "Created audience draft",
+      "Created audience",
       `${name} · ${type} · ${resolvedMembers.length} matching contacts · ${rules.length} conditions`,
       "Audience draft",
     );
     setModal("");
-    notify(
-      `${name} saved with ${resolvedMembers.length} matching subscribed contacts in this preview`,
-    );
+    notify(`${name} saved to the CRM with ${type === "Static group" ? resolvedMembers.length : resolvedMembers.length} matching contacts`);
   };
   const openAudienceBuilder = (members: Contact[] = []) => {
     setSegmentSeedContacts(members);
@@ -1230,19 +1264,47 @@ export function CRMApp({
     go("Email campaigns");
     setModal("email");
   };
-  const openAudienceDetails = (audience: AudienceRecord) => {
+  const openAudienceDetails = async (audience: AudienceRecord) => {
     window.history.pushState({}, "", `/audiences/${encodeURIComponent(audience.name)}`);
     setActiveAudience(audience);
+    if (audience.id) {
+      try {
+        const saved = await crmApi.getAudience(audience.id);
+        const rules = typeof saved.rules === "string" ? JSON.parse(saved.rules) as FilterRule[] : saved.rules;
+        setActiveAudience({
+          ...audience,
+          id: saved.id,
+          description: saved.description ?? audience.description,
+          count: String(saved.members.length),
+          rules,
+          members: saved.members.map((member) => contactFromApi(member.contact) as Contact),
+        });
+      } catch (error) {
+        notify(`Could not load audience details: ${error instanceof Error ? error.message : "API error"}`);
+      }
+    }
     setPage("Audience profile");
     setSelected([]);
     recordAudit("Viewed audience details", audience.name, "Audience viewed");
   };
-  const createCategory = (name: string) => {
-    setCategories((current) => [...current, name]);
+  const createCategory = async (name: string) => {
+    try {
+      const created = await crmApi.createCategory(name);
+      setCategories((current) => current.includes(created.name) ? current : [...current, created.name]);
+    } catch (error) {
+      notify(`Could not create category: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     recordAudit("Created contact category", name, "Category created");
-    notify(`${name} category created`);
+    notify(`${name} category created in the CRM`);
   };
-  const renameCategory = (previous: string, next: string) => {
+  const renameCategory = async (previous: string, next: string) => {
+    try {
+      await crmApi.renameCategory(previous, next);
+    } catch (error) {
+      notify(`Could not rename category: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     setCategories((current) =>
       current.map((name) => (name === previous ? next : name)),
     );
@@ -1272,15 +1334,21 @@ export function CRMApp({
       `${previous} → ${next}`,
       "Category updated",
     );
-    notify(`${previous} renamed to ${next}`);
+    notify(`${previous} renamed to ${next} in the CRM`);
   };
-  const deleteCategory = (name: string) => {
+  const deleteCategory = async (name: string) => {
     const fallback =
       categories.find((categoryName) => categoryName !== name) ??
       "Uncategorized";
     const affected = contacts.filter(
       (contact) => contact.category === name,
     ).length;
+    try {
+      await crmApi.deleteCategory(name, fallback);
+    } catch (error) {
+      notify(`Could not delete category: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     setCategories((current) =>
       current.filter((categoryName) => categoryName !== name),
     );
@@ -1344,11 +1412,12 @@ export function CRMApp({
   const exportCsv = (rows: Contact[] = filtered) => {
     const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
     const csv = [
-      "Name,Email,Phone,Organization,Category,Location,Interests,Tags,Email_Consent_Status,SMS_Consent_Status",
+      "Name,Email,Alternate_Emails,Phone,Organization,Category,Location,Interests,Tags,Email_Consent_Status,SMS_Consent_Status",
       ...rows.map((c) =>
         [
           c.name,
           c.email,
+          (c.alternateEmails ?? []).join("; "),
           c.phone ?? "",
           c.organization ?? "",
           c.category,
@@ -1383,6 +1452,7 @@ export function CRMApp({
       ({
         name,
         email,
+        alternateEmails,
         phone,
         organization,
         category,
@@ -1394,6 +1464,7 @@ export function CRMApp({
       }) => ({
         Name: name,
         Email: email,
+        Alternate_Emails: (alternateEmails ?? []).join("; "),
         Phone: phone ?? "",
         Organization: organization ?? "",
         Category: category,
@@ -1431,35 +1502,40 @@ export function CRMApp({
         })
       : file.text();
     void content
-      .then((raw) => {
-        const parseLine = (line: string) => {
-          const out: string[] = [];
-          let value = "",
-            quoted = false;
-          for (let i = 0; i < line.length; i++) {
-            const ch = line[i];
-            if (ch === '"' && line[i + 1] === '"' && quoted) {
+      .then(async (raw) => {
+        const parseCsv = (input: string) => {
+          const rows: string[][] = [];
+          let row: string[] = [];
+          let value = "";
+          let quoted = false;
+          for (let index = 0; index < input.length; index++) {
+            const character = input[index];
+            if (character === '"' && quoted && input[index + 1] === '"') {
               value += '"';
-              i++;
-            } else if (ch === '"') {
+              index++;
+            } else if (character === '"') {
               quoted = !quoted;
-            } else if (ch === "," && !quoted) {
-              out.push(value.trim());
+            } else if (character === "," && !quoted) {
+              row.push(value.trim());
               value = "";
-            } else value += ch;
+            } else if ((character === "\n" || character === "\r") && !quoted) {
+              if (character === "\r" && input[index + 1] === "\n") index++;
+              row.push(value.trim());
+              if (row.some((cell) => cell.length > 0)) rows.push(row);
+              row = [];
+              value = "";
+            } else value += character;
           }
-          out.push(value.trim());
-          return out;
+          row.push(value.trim());
+          if (row.some((cell) => cell.length > 0)) rows.push(row);
+          return rows;
         };
-        const [headerLine, ...lines] = raw
-          .replace(/^\uFEFF/, "")
-          .split(/\r?\n/)
-          .filter(Boolean);
-        if (!headerLine) {
+        const [headerRow, ...lines] = parseCsv(raw.replace(/^\uFEFF/, ""));
+        if (!headerRow) {
           notify("The selected CSV is empty");
           return;
         }
-        const headers = parseLine(headerLine).map((h) =>
+        const headers = headerRow.map((h) =>
           h.toLowerCase().replaceAll(/[\s-]+/g, "_"),
         );
         const index = (...keys: string[]) =>
@@ -1484,6 +1560,7 @@ export function CRMApp({
           organizationAt = index("organization", "organisation", "company"),
           interestsAt = index("interests", "interest"),
           tagsAt = index("tags", "tag");
+        const alternateEmailsAt = index("alternate_emails", "alternate_email", "secondary_emails");
         const seen = new Set(contacts.map((c) => c.email.toLowerCase()));
         const seenPhones = new Set(
           contacts.map((c) => c.phone?.replace(/\D/g, "")).filter(Boolean),
@@ -1491,7 +1568,7 @@ export function CRMApp({
         let invalidCount = 0;
         let invalidPhoneCount = 0;
         let duplicateCount = 0;
-        const additions = lines.map(parseLine).flatMap((values, i) => {
+        const additions = lines.flatMap((values, i) => {
           const email = (values[emailAt] || "").trim();
           const importedPhone =
             phoneAt >= 0 ? (values[phoneAt] ?? "").trim() : "";
@@ -1549,6 +1626,7 @@ export function CRMApp({
             {
               name,
               email,
+              alternateEmails: alternateEmailsAt >= 0 ? (values[alternateEmailsAt] ?? "").split(/[;,]/).map((value) => value.trim().toLowerCase()).filter(Boolean) : [],
               category:
                 categoryAt >= 0 && values[categoryAt]
                   ? values[categoryAt]
@@ -1594,26 +1672,22 @@ export function CRMApp({
           );
           return;
         }
-        setContacts((current) => [...additions, ...current]);
-        setCategories((current) =>
-          Array.from(
-            new Set([
-              ...current,
-              ...additions.map((contact) => contact.category),
-            ]),
-          ),
-        );
+        const imported = await crmApi.importContacts(additions.map(toApiContact));
+        const persisted = imported.contacts.map((contact) => contactFromApi(contact) as Contact);
+        setContacts((current) => [...persisted, ...current]);
+        setCategories((current) => Array.from(new Set([...current, ...persisted.map((contact) => contact.category)])));
+        const totalDuplicates = duplicateCount + imported.skipped;
         recordAudit(
           "Imported contacts",
-          `${file.name} · ${additions.length} imported · ${duplicateCount} duplicates · ${invalidCount} invalid email · ${invalidPhoneCount} invalid phone`,
+          `${file.name} · ${imported.created} imported · ${totalDuplicates} duplicates · ${invalidCount} invalid email · ${invalidPhoneCount} invalid phone`,
           "Contact import",
         );
         setModal("");
         notify(
-          `${additions.length} imported · ${duplicateCount} duplicates, ${invalidCount} invalid emails, ${invalidPhoneCount} invalid phones skipped`,
+          `${imported.created} imported · ${totalDuplicates} duplicates, ${invalidCount} invalid emails, ${invalidPhoneCount} invalid phones skipped`,
         );
       })
-      .catch(() => notify("Could not read this contact file"));
+      .catch((error: unknown) => notify(`Could not import contacts: ${error instanceof Error ? error.message : "check the file and API connection"}`));
   };
   const toggle = (email: string) =>
     setSelected((v) =>
@@ -1785,10 +1859,10 @@ export function CRMApp({
               <div className="stats-grid compact-stats">
                 <Stat
                   icon={<ContactRound />}
-                  label="Contacts in preview"
+                  label="Total contacts"
                   value={String(contacts.length)}
-                  change="Sample"
-                  hint="illustrative records"
+                  change="Live"
+                  hint="saved contact records"
                   color="lav"
                 />
                 <Stat
@@ -1797,26 +1871,26 @@ export function CRMApp({
                   value={String(
                     contacts.filter((c) => c.status === "Subscribed").length,
                   )}
-                  change="Sample"
-                  hint="in this preview"
+                  change="Live"
+                  hint="saved records"
                   color="green"
                 />
                 <Stat
                   icon={<ShieldCheck />}
-                  label="Subscribed status"
+                  label="SMS opted in"
                   value={String(
-                    contacts.filter((c) => c.status === "Subscribed").length,
+                    contacts.filter((c) => c.smsStatus === "Subscribed").length,
                   )}
-                  change="Sample"
-                  hint="subscribed records"
+                  change="Live"
+                  hint="active email opt-ins"
                   color="orange"
                 />
                 <Stat
                   icon={<Users />}
                   label="Categories"
                   value={String(categories.length)}
-                  change="Sample"
-                  hint="in this preview"
+                  change="Live"
+                  hint="available categories"
                   color="blue"
                 />
               </div>
@@ -1829,10 +1903,7 @@ export function CRMApp({
                         {filtered.length} shown
                       </span>
                     </h2>
-                    <p>
-                      Search and filter the illustrative contact records in this
-                      preview.
-                    </p>
+                    <p>Search, filter, and manage contact records saved in your CRM.</p>
                   </div>
                 </div>
                 <div className="table-toolbar">
@@ -1906,10 +1977,19 @@ export function CRMApp({
                     >
                       Export selected
                     </button>
+                    <button className="bulk-delete-action" onClick={() => setConfirmBulkDelete(true)}>
+                      Delete selected
+                    </button>
                     <button onClick={() => setSelected([])}>Clear</button>
                   </div>
                 )}
                 <div className="table-scroll">
+                  {contactsLoading ? (
+                    <div className="empty-state"><LoaderCircle size={20} className="auth-spinner" /><b>Loading CRM contacts</b><span>Fetching contacts and categories from the API.</span></div>
+                  ) : contactsError ? (
+                    <div className="empty-state" role="alert"><Activity size={20} /><b>Contacts could not be loaded</b><span>{contactsError}</span><button className="btn secondary" onClick={() => setContactsReloadKey((key) => key + 1)}>Retry</button></div>
+                  ) : (
+                    <>
                   <table>
                     <thead>
                       <tr>
@@ -1918,26 +1998,26 @@ export function CRMApp({
                             aria-label="Select all visible contacts"
                             type="checkbox"
                             checked={
-                              filtered.length > 0 &&
-                              filtered.every((c) =>
+                              visibleContacts.length > 0 &&
+                              visibleContacts.every((c) =>
                                 selectedVisible.includes(c.email),
                               )
                             }
                             onChange={() =>
                               setSelected(
-                                filtered.every((c) =>
+                                visibleContacts.every((c) =>
                                   selectedVisible.includes(c.email),
                                 )
                                   ? selected.filter(
                                       (email) =>
-                                        !filtered.some(
+                                        !visibleContacts.some(
                                           (c) => c.email === email,
                                         ),
                                     )
                                   : [
                                       ...new Set([
                                         ...selected,
-                                        ...filtered.map((c) => c.email),
+                                        ...visibleContacts.map((c) => c.email),
                                       ]),
                                     ],
                               )
@@ -1953,7 +2033,7 @@ export function CRMApp({
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((c) => (
+                      {visibleContacts.map((c) => (
                         <tr key={c.email}>
                           <td>
                             <input
@@ -2001,36 +2081,29 @@ export function CRMApp({
                       ))}
                     </tbody>
                   </table>
-                  {filtered.length === 0 && (
+                  {filtered.length === 0 && !contactsLoading && !contactsError && (
                     <div className="empty-state">
-                      <Search size={20} />
-                      <b>No contacts match these filters</b>
+                      {contacts.length === 0 ? <ContactRound size={20} /> : <Search size={20} />}
+                      <b>{contacts.length === 0 ? "No contacts yet" : "No contacts match these filters"}</b>
                       <span>
-                        Change your search or clear a filter to see contacts.
+                        {contacts.length === 0 ? "Add your first contact or import a contact file to get started." : "Change your search or clear a filter to see contacts."}
                       </span>
-                      <button
-                        className="btn secondary"
-                        onClick={() => {
-                          setQuery("");
-                          setCategory("All categories");
-                          setStatusFilter("All statuses");
-                        }}
-                      >
-                        Clear filters
-                      </button>
+                      {contacts.length === 0 ? <button className="btn primary" onClick={() => setModal("add")}><Plus size={15} /> Add contact</button> : <button className="btn secondary" onClick={() => { setQuery(""); setCategory("All categories"); setStatusFilter("All statuses"); }}>Clear filters</button>}
                     </div>
+                  )}
+                    </>
                   )}
                 </div>
                 <div className="table-footer">
                   <span>
-                    Showing <b>{filtered.length}</b> of {contacts.length} sample
-                    contacts
+                    Showing <b>{filtered.length === 0 ? 0 : contactsPage * pageSize + 1}–{Math.min((contactsPage + 1) * pageSize, filtered.length)}</b> of {filtered.length} contacts
                   </span>
                   <div>
-                    <button className="page-btn" disabled>
+                    <button className="page-btn" disabled={contactsPage <= 0 || contactsLoading} onClick={() => setContactsPage((page) => Math.max(0, page - 1))}>
                       <ChevronLeft size={15} /> Previous
                     </button>
-                    <button className="page-btn" disabled>
+                    <span className="page-count">{contactsPage + 1} / {pageCount}</span>
+                    <button className="page-btn" disabled={contactsPage >= pageCount - 1 || contactsLoading} onClick={() => setContactsPage((page) => Math.min(pageCount - 1, page + 1))}>
                       Next <ChevronRight size={15} />
                     </button>
                   </div>
@@ -2067,6 +2140,7 @@ export function CRMApp({
                 window.history.pushState({}, "", `/contacts/${encodeURIComponent(key)}/edit`);
                 setModal("edit-contact");
               }}
+              onDelete={() => setContactToDelete(activeContact)}
               onStartCampaign={() =>
                 openCampaignForAudience(activeContact.name)
               }
@@ -2311,6 +2385,32 @@ export function CRMApp({
           </section>
         </div>
       )}
+      {contactToDelete && (
+        <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="delete-contact-title">
+          <div className="category-confirm-card">
+            <div className="danger-icon"><Trash2 size={18} /></div>
+            <h2 id="delete-contact-title">Delete {contactToDelete.name}?</h2>
+            <p>This permanently removes the contact record from your CRM. Any audience memberships for this contact will also be removed.</p>
+            <div className="category-confirm-actions">
+              <button className="btn secondary" onClick={() => setContactToDelete(null)}>Cancel</button>
+              <button className="btn danger" onClick={() => void removeContact(contactToDelete)}>Delete contact</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmBulkDelete && (
+        <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="delete-selected-title">
+          <div className="category-confirm-card">
+            <div className="danger-icon"><Trash2 size={18} /></div>
+            <h2 id="delete-selected-title">Delete {selectedVisible.length} selected contacts?</h2>
+            <p>This permanently removes these CRM records and removes them from saved audiences.</p>
+            <div className="category-confirm-actions">
+              <button className="btn secondary" onClick={() => setConfirmBulkDelete(false)}>Cancel</button>
+              <button className="btn danger" onClick={() => void removeSelectedContacts()}>Delete contacts</button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && (
         <div className="toast">
           <Check size={16} />
@@ -2539,6 +2639,7 @@ function ContactProfile({
   onBack,
   notify,
   onEdit,
+  onDelete,
   onStartCampaign,
 }: {
   contact: Contact;
@@ -2546,6 +2647,7 @@ function ContactProfile({
   onBack: () => void;
   notify: (message: string) => void;
   onEdit: () => void;
+  onDelete: () => void;
   onStartCampaign: () => void;
 }) {
   const consentCopy =
@@ -2567,6 +2669,9 @@ function ContactProfile({
             </button>
             <button className="btn secondary" onClick={onEdit}>
               <SlidersHorizontal size={15} /> Edit contact
+            </button>
+            <button className="btn danger-quiet" onClick={onDelete}>
+              <Trash2 size={15} /> Delete
             </button>
             <button className="btn primary" onClick={onStartCampaign}>
               <Send size={15} /> Create campaign
@@ -3603,12 +3708,7 @@ function AudiencesPreview({
   onView,
   openCampaign,
 }: {
-  drafts: {
-    name: string;
-    type: "Dynamic segment" | "Static group";
-    rules: FilterRule[];
-    members: Contact[];
-  }[];
+  drafts: AudienceDraft[];
   setModal: (s: string) => void;
   onView: (audience: AudienceRecord) => void;
   openCampaign: (name: string) => void;
@@ -3620,10 +3720,10 @@ function AudiencesPreview({
         d.name,
         d.type,
         d.type === "Static group"
-          ? `${d.members.length} selected preview contact${d.members.length === 1 ? "" : "s"}.`
-          : `${d.rules.length} condition${d.rules.length === 1 ? "" : "s"} saved locally; evaluation needs a connected backend.`,
-        d.type === "Static group" ? String(d.members.length) : "—",
-        "Saved in preview",
+          ? `${d.memberCount ?? d.members.length} contacts saved in this group.`
+          : `${d.rules.length} audience conditions saved; matching uses current contact records.`,
+        String(d.memberCount ?? d.members.length),
+        "Saved to CRM",
         "violet",
       ] as const,
   );
@@ -3704,6 +3804,7 @@ function AudiencesPreview({
                 onClick={() => {
                   const draft = drafts.find((item) => item.name === name);
                   onView({
+                    id: draft?.id,
                     name,
                     type,
                     description: desc,
@@ -5837,6 +5938,7 @@ function ModalDialog({
       saveContact({
         name,
         email: email.trim(),
+        alternateEmails: initialContact?.alternateEmails ?? [],
         phone: phone.trim() || undefined,
         organization: organization.trim() || undefined,
         category:

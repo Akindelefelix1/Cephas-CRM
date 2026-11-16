@@ -5,6 +5,7 @@ export type ApiContact = {
   firstName: string;
   lastName: string | null;
   email: string;
+  alternateEmails: string[] | null;
   phone: string | null;
   organization: string | null;
   category: string | null;
@@ -14,6 +15,15 @@ export type ApiContact = {
   emailConsent: "Subscribed" | "Unsubscribed" | "Pending";
   smsConsent: "Subscribed" | "Unsubscribed" | "Pending";
   createdAt: string;
+};
+export type ApiCategory = { id: string; name: string };
+export type ApiAudience = {
+  id: string;
+  name: string;
+  type: "static" | "dynamic";
+  description: string | null;
+  rules: string | Array<{ field: string; operator: string; value: string }>;
+  memberCount: number;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -30,10 +40,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const crmApi = {
   listContacts: () => request<ApiContact[]>("/contacts"),
+  importContacts: (contacts: Omit<ApiContact, "id" | "createdAt">[]) =>
+    request<{ contacts: ApiContact[]; created: number; skipped: number }>("/contacts/bulk", { method: "POST", body: JSON.stringify({ contacts }) }),
+  deleteContact: (id: string) =>
+    request<{ deleted: boolean; id: string }>(`/contacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  deleteContacts: (contactIds: string[]) =>
+    request<{ deleted: number; ids: string[] }>("/contacts/bulk-delete", { method: "POST", body: JSON.stringify({ contactIds }) }),
   createContact: (contact: Omit<ApiContact, "id" | "createdAt">) =>
     request<ApiContact>("/contacts", { method: "POST", body: JSON.stringify(contact) }),
   updateContact: (id: string, contact: Partial<ApiContact>) =>
     request<ApiContact>(`/contacts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(contact) }),
+  mergeContact: (targetId: string, sourceId: string | undefined, contact: Partial<ApiContact>) =>
+    request<ApiContact>(`/contacts/${encodeURIComponent(targetId)}/merge`, { method: "POST", body: JSON.stringify({ ...contact, sourceId }) }),
+  listCategories: async () => (await request<ApiCategory[]>("/categories")).map((category) => category.name),
+  createCategory: (name: string) =>
+    request<ApiCategory>("/categories", { method: "POST", body: JSON.stringify({ name }) }),
+  renameCategory: (previousName: string, name: string) =>
+    request<ApiCategory>(`/categories/${encodeURIComponent(previousName)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteCategory: (name: string, fallbackName: string) =>
+    request<{ deleted: boolean; name: string; movedContacts: number; fallback: string }>(`/categories/${encodeURIComponent(name)}`, { method: "DELETE", body: JSON.stringify({ fallbackName }) }),
+  listAudiences: () => request<ApiAudience[]>("/audiences"),
+  getAudience: (id: string) => request<ApiAudience & { members: { contact: ApiContact }[] }>(`/audiences/${encodeURIComponent(id)}`),
+  createAudience: (audience: { name: string; type: "static" | "dynamic"; description: string; rules: Array<{ field: string; operator: string; value: string }>; contactIds?: string[] }) =>
+    request<ApiAudience>("/audiences", { method: "POST", body: JSON.stringify(audience) }),
+  addAudienceMembers: (id: string, contactIds: string[]) =>
+    request<{ added: number }>(`/audiences/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ contactIds }) }),
 };
 
 export function contactFromApi(contact: ApiContact) {
@@ -43,6 +74,7 @@ export function contactFromApi(contact: ApiContact) {
     id: contact.id,
     name,
     email: contact.email,
+    alternateEmails: contact.alternateEmails ?? [],
     phone: contact.phone || undefined,
     organization: contact.organization || undefined,
     category: contact.category || "Uncategorized",
