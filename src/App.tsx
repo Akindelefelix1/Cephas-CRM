@@ -43,6 +43,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { contactFromApi, crmApi, type ApiContact } from "./api";
 
 type Page =
   | "Dashboard"
@@ -63,6 +64,7 @@ type Page =
   | "Settings"
   | "Leads";
 type Contact = {
+  id?: string;
   name: string;
   email: string;
   phone?: string;
@@ -588,7 +590,7 @@ export function CRMApp({
     .join("");
   const toastTimer = useRef<number | undefined>(undefined);
   const [page, setPage] = useState<Page>("Dashboard"),
-    [contacts, setContacts] = useState(initialContacts),
+    [contacts, setContacts] = useState<Contact[]>(initialContacts),
     [categories, setCategories] = useState(initialCategories),
     [activeContact, setActiveContact] = useState<Contact | null>(null),
     [campaignRecords, setCampaignRecords] = useState<Campaign[]>(campaigns),
@@ -622,6 +624,35 @@ export function CRMApp({
     [mobile, setMobile] = useState(false),
     [sidebarCollapsed, setSidebarCollapsed] = useState(false),
     [period, setPeriod] = useState("Last 30 days");
+  useEffect(() => {
+    let active = true;
+    crmApi.listContacts().then((rows) => {
+      if (!active) return;
+      const loaded = rows.map((row) => contactFromApi(row) as Contact);
+      setContacts(loaded);
+      setCategories(Array.from(new Set(loaded.map((contact) => contact.category))));
+    }).catch((error: unknown) => {
+      if (!active) return;
+      notify(`Could not load contacts from the CRM API: ${error instanceof Error ? error.message : "connection failed"}`);
+    });
+    return () => { active = false; };
+  }, []);
+  const toApiContact = (contact: Contact): Omit<ApiContact, "id" | "createdAt"> => {
+    const [firstName, ...lastNames] = contact.name.trim().split(/\s+/);
+    return {
+      firstName: firstName || contact.email.split("@")[0],
+      lastName: lastNames.join(" ") || null,
+      email: contact.email,
+      phone: contact.phone || null,
+      organization: contact.organization || null,
+      category: contact.category || null,
+      location: contact.location || null,
+      interests: contact.interests ?? [],
+      tags: contact.tags ?? [],
+      emailConsent: contact.status,
+      smsConsent: contact.smsStatus ?? "Pending",
+    };
+  };
   const filtered = useMemo(
     () =>
       contacts
@@ -694,7 +725,7 @@ export function CRMApp({
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
-  const addContact = (contact: Contact) => {
+  const addContact = async (contact: Contact) => {
     const normalizedPhone = contact.phone?.replace(/\D/g, "");
     const duplicate = contacts.find(
       (current) =>
@@ -707,16 +738,23 @@ export function CRMApp({
       setModal("");
       return;
     }
-    setContacts((current) => [contact, ...current]);
+    try {
+      const saved = await crmApi.createContact(toApiContact(contact));
+      const persisted = contactFromApi(saved) as Contact;
+      setContacts((current) => [persisted, ...current]);
+    } catch (error) {
+      notify(`Could not save contact: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
     recordAudit(
       "Created contact",
       `${contact.name} · ${contact.email}`,
       "Contact created",
     );
     setModal("");
-    notify("Contact added to this preview");
+    notify("Contact saved to the CRM");
   };
-  const updateContact = (contact: Contact) => {
+  const updateContact = async (contact: Contact) => {
     const normalizedPhone = contact.phone?.replace(/\D/g, "");
     const duplicate = contacts.find(
       (current) =>
@@ -736,12 +774,25 @@ export function CRMApp({
       setModal("");
       return;
     }
+    const existingContact = contacts.find((item) => item.email === activeContact?.email);
+    if (!existingContact?.id) {
+      notify("This sample contact is not stored in the CRM yet");
+      return;
+    }
+    let saved: ApiContact;
+    try {
+      saved = await crmApi.updateContact(existingContact.id, toApiContact(contact));
+    } catch (error) {
+      notify(`Could not update contact: ${error instanceof Error ? error.message : "API error"}`);
+      return;
+    }
+    const persisted = contactFromApi(saved) as Contact;
     setContacts((current) =>
       current.map((item) =>
-        item.email === activeContact?.email ? contact : item,
+        item.email === activeContact?.email ? persisted : item,
       ),
     );
-    setActiveContact(contact);
+    setActiveContact(persisted);
     const changes = [
       contact.name !== activeContact?.name ? "name" : "",
       contact.email.toLowerCase() !== activeContact?.email.toLowerCase()
@@ -773,7 +824,7 @@ export function CRMApp({
       "Contact updated",
     );
     setModal("");
-    notify("Contact updated in this preview");
+    notify("Contact updated in the CRM");
   };
   const mergeDuplicateContact = () => {
     if (!pendingDuplicate) return;

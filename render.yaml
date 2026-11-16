@@ -4,6 +4,11 @@ services:
     runtime: static
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://cephas-crm-api.onrender.com
+      - key: VITE_NEON_AUTH_URL
+        sync: false
     routes:
       - type: rewrite
         source: /*

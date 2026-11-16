@@ -1,6 +1,6 @@
 # Cephas CRM UI
 
-A responsive, TypeScript-first React UI based on the Cephas CRM software requirements document. Email account creation, sign-in, session restoration, and sign-out use Neon Managed Better Auth. CRM records remain preview data held in the browser session; they are not yet connected to the CRM API or durable audit store.
+A responsive, TypeScript-first React UI based on the Cephas CRM software requirements document. Email account creation, sign-in, session restoration, and sign-out use Neon Managed Better Auth. Contacts load from and save to the deployed NestJS CRM API. Campaign, audit, and other preview areas remain browser-session data.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ npm run dev
 
 Create a production build with `npm run build`.
 
-The local `.env.local` file needs `VITE_NEON_AUTH_URL` set to the branch's Neon Auth Base URL. To deploy the static site, set the same variable in the hosting provider's build environment. This is a public client URL; do not put `DATABASE_URL` or other server credentials in the Vite environment.
+The frontend uses `https://cephas-crm-api.onrender.com` by default. Set `VITE_API_BASE_URL` to override it. Set `VITE_NEON_AUTH_URL` to the branch's Neon Auth Base URL locally and in the hosting provider's build environment. These are public client URLs; do not put `DATABASE_URL` or other server credentials in the Vite environment.
 
 ## Deploy to Render
 
@@ -24,7 +24,7 @@ This project is configured as a Render Static Site in `render.yaml`.
 
 To configure the site manually instead, create a **Static Site** and use build command `npm ci && npm run build` and publish directory `dist`. Add a rewrite rule with source `/*` and destination `/index.html` for client-side navigation fallback.
 
-Sample contact, campaign, and audience edits are held in the browser session, so they are not shared between visitors or devices and will not provide durable CRM storage.
+When the API responds, its contact list replaces the illustrative sample contacts, and contact creation and edits persist through the API. If it is unreachable, the UI keeps sample data and displays an error notification. Audience, campaign, and audit data are still preview data held in the browser session.
 
 ## Included UI areas
 
