@@ -1983,39 +1983,41 @@ export function CRMApp({
               {page === "Dashboard" && (
                 <Dashboard setPage={go} period={period} setPeriod={setPeriod} />
               )}
-              <ContactsListPage
-                contacts={contacts}
-                categories={categories}
-                filtered={filtered}
-                visibleContacts={visibleContacts}
-                selectedVisible={selectedVisible}
-                selected={selected}
-                contactsLoading={contactsLoading}
-                contactsError={contactsError}
-                query={query}
-                setQuery={setQuery}
-                category={category}
-                setCategory={setCategory}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
-                sortBy={sortBy}
-                setSortBy={setSortBy}
-                setModal={setModal}
-                exportCsv={exportCsv}
-                exportExcel={exportExcel}
-                go={go}
-                openAudienceBuilder={openAudienceBuilder}
-                setBulkDeletePhrase={setBulkDeletePhrase}
-                setConfirmBulkDelete={setConfirmBulkDelete}
-                contactsReload={() => setContactsReloadKey((key) => key + 1)}
-                setSelected={setSelected}
-                toggle={toggle}
-                openContactProfile={openContactProfile}
-                contactsPage={contactsPage}
-                pageSize={pageSize}
-                pageCount={pageCount}
-                setContactsPage={setContactsPage}
-              />
+              {page === "Contacts" && (
+                <ContactsListPage
+                  contacts={contacts}
+                  categories={categories}
+                  filtered={filtered}
+                  visibleContacts={visibleContacts}
+                  selectedVisible={selectedVisible}
+                  selected={selected}
+                  contactsLoading={contactsLoading}
+                  contactsError={contactsError}
+                  query={query}
+                  setQuery={setQuery}
+                  category={category}
+                  setCategory={setCategory}
+                  statusFilter={statusFilter}
+                  setStatusFilter={setStatusFilter}
+                  sortBy={sortBy}
+                  setSortBy={setSortBy}
+                  setModal={setModal}
+                  exportCsv={exportCsv}
+                  exportExcel={exportExcel}
+                  go={go}
+                  openAudienceBuilder={openAudienceBuilder}
+                  setBulkDeletePhrase={setBulkDeletePhrase}
+                  setConfirmBulkDelete={setConfirmBulkDelete}
+                  contactsReload={() => setContactsReloadKey((key) => key + 1)}
+                  setSelected={setSelected}
+                  toggle={toggle}
+                  openContactProfile={openContactProfile}
+                  contactsPage={contactsPage}
+                  pageSize={pageSize}
+                  pageCount={pageCount}
+                  setContactsPage={setContactsPage}
+                />
+              )}
               {page === "Categories" && (
                 <CategoryManager
                   categories={categories}
