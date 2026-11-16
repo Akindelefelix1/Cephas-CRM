@@ -685,6 +685,9 @@ export function CRMApp({
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleContacts = filtered.slice(contactsPage * pageSize, (contactsPage + 1) * pageSize);
   useEffect(() => { setContactsPage(0); }, [query, category, statusFilter, sortBy]);
+  useEffect(() => {
+    setContactsPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
   const notify = (s: string) => {
     if (toastTimer.current !== undefined) {
       window.clearTimeout(toastTimer.current);
@@ -1595,7 +1598,7 @@ export function CRMApp({
           if (normalizedPhone.length >= 7) seenPhones.add(normalizedPhone);
           const name =
             (nameAt >= 0
-              ? values[nameAt]
+              ? values[nameAt] ?? ""
               : `${values[firstAt] || ""} ${values[lastAt] || ""}`
             ).trim() || email.split("@")[0];
           const initials = name
@@ -1672,19 +1675,39 @@ export function CRMApp({
           );
           return;
         }
-        const imported = await crmApi.importContacts(additions.map(toApiContact));
-        const persisted = imported.contacts.map((contact) => contactFromApi(contact) as Contact);
+        const importedContacts: ApiContact[] = [];
+        let apiSkipped = 0;
+        try {
+          for (let start = 0; start < additions.length; start += 1000) {
+            const result = await crmApi.importContacts(
+              additions.slice(start, start + 1000).map(toApiContact),
+            );
+            importedContacts.push(...result.contacts);
+            apiSkipped += result.skipped;
+          }
+        } catch (error) {
+          const persistedPartial = importedContacts.map((contact) => contactFromApi(contact) as Contact);
+          if (persistedPartial.length) {
+            setContacts((current) => [...persistedPartial, ...current]);
+            setCategories((current) => Array.from(new Set([...current, ...persistedPartial.map((contact) => contact.category)])));
+            setModal("");
+            notify(`${persistedPartial.length} contacts imported before the import stopped: ${error instanceof Error ? error.message : "API error"}. You can retry the file; existing emails will be skipped.`);
+            return;
+          }
+          throw error;
+        }
+        const persisted = importedContacts.map((contact) => contactFromApi(contact) as Contact);
         setContacts((current) => [...persisted, ...current]);
         setCategories((current) => Array.from(new Set([...current, ...persisted.map((contact) => contact.category)])));
-        const totalDuplicates = duplicateCount + imported.skipped;
+        const totalDuplicates = duplicateCount + apiSkipped;
         recordAudit(
           "Imported contacts",
-          `${file.name} · ${imported.created} imported · ${totalDuplicates} duplicates · ${invalidCount} invalid email · ${invalidPhoneCount} invalid phone`,
+          `${file.name} · ${persisted.length} imported · ${totalDuplicates} duplicates · ${invalidCount} invalid email · ${invalidPhoneCount} invalid phone`,
           "Contact import",
         );
         setModal("");
         notify(
-          `${imported.created} imported · ${totalDuplicates} duplicates, ${invalidCount} invalid emails, ${invalidPhoneCount} invalid phones skipped`,
+          `${persisted.length} imported · ${totalDuplicates} duplicates, ${invalidCount} invalid emails, ${invalidPhoneCount} invalid phones skipped`,
         );
       })
       .catch((error: unknown) => notify(`Could not import contacts: ${error instanceof Error ? error.message : "check the file and API connection"}`));
@@ -1882,7 +1905,7 @@ export function CRMApp({
                     contacts.filter((c) => c.smsStatus === "Subscribed").length,
                   )}
                   change="Live"
-                  hint="active email opt-ins"
+                  hint="saved SMS opt-ins"
                   color="orange"
                 />
                 <Stat
