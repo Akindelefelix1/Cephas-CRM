@@ -63,6 +63,52 @@ type Page =
   | "Audit log"
   | "Settings"
   | "Leads";
+const normalizePath = (pathname: string) => {
+  const normalized = `/${pathname.split("/").filter(Boolean).join("/")}`;
+  return normalized === "/" ? normalized : normalized.replace(/\/$/, "");
+};
+const pageForPath = (pathname: string): Page => {
+  const path = normalizePath(pathname).toLowerCase();
+  if (path === "/" || path === "/dashboard") return "Dashboard";
+  if (["/contacts", "/contact", "/cinntacat", "/contacts/new", "/contact/edit", "/contacts/edit", "/contacts/categories"].includes(path)) return path.endsWith("categories") ? "Categories" : "Contacts";
+  if (/^\/(contacts|contact)\/[^/]+(\/edit)?$/.test(path)) return "Contact profile";
+  if (path === "/audiences") return "Audiences";
+  if (/^\/audiences\/[^/]+$/.test(path)) return "Audience profile";
+  if (path === "/help" || path === "/help-centre") return "Help centre";
+  if (path === "/notifications") return "Notifications";
+  if (["/campaigns", "/campaigns/email"].includes(path)) return "Email campaigns";
+  if (path === "/campaigns/sms") return "Bulk SMS";
+  if (path === "/campaigns/whatsapp") return "WhatsApp";
+  if (path === "/templates") return "Templates";
+  if (path === "/scheduled") return "Scheduled";
+  if (path === "/reports") return "Reports";
+  if (path === "/audit" || path === "/audit-log") return "Audit log";
+  if (path === "/settings") return "Settings";
+  if (path === "/leads") return "Leads";
+  return "Dashboard";
+};
+const pathForPage = (page: Page) => {
+  const paths: Record<Page, string> = {
+    Dashboard: "/dashboard",
+    Contacts: "/contacts",
+    Categories: "/contacts/categories",
+    "Contact profile": "/contacts",
+    "Audience profile": "/audiences",
+    Audiences: "/audiences",
+    "Help centre": "/help",
+    Notifications: "/notifications",
+    "Email campaigns": "/campaigns/email",
+    "Bulk SMS": "/campaigns/sms",
+    WhatsApp: "/campaigns/whatsapp",
+    Templates: "/templates",
+    Scheduled: "/scheduled",
+    Reports: "/reports",
+    "Audit log": "/audit",
+    Settings: "/settings",
+    Leads: "/leads",
+  };
+  return paths[page];
+};
 type Contact = {
   id?: string;
   name: string;
@@ -589,7 +635,7 @@ export function CRMApp({
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
   const toastTimer = useRef<number | undefined>(undefined);
-  const [page, setPage] = useState<Page>("Dashboard"),
+  const [page, setPage] = useState<Page>(() => pageForPath(window.location.pathname)),
     [contacts, setContacts] = useState<Contact[]>(initialContacts),
     [categories, setCategories] = useState(initialCategories),
     [activeContact, setActiveContact] = useState<Contact | null>(null),
@@ -615,7 +661,7 @@ export function CRMApp({
     [sortBy, setSortBy] = useState("Recently added"),
     [selected, setSelected] = useState<string[]>([]),
     [toast, setToast] = useState(""),
-    [modal, setModal] = useState(""),
+    [modal, setModal] = useState(() => normalizePath(window.location.pathname).toLowerCase() === "/contacts/new" ? "add" : ""),
     [pendingDuplicate, setPendingDuplicate] = useState<{
       existing: Contact;
       incoming: Contact;
@@ -696,11 +742,30 @@ export function CRMApp({
       ...rows,
     ]);
   const go = (p: Page) => {
+    const path = p === "Contact profile" && activeContact
+      ? `/contacts/${encodeURIComponent(activeContact.id || activeContact.email)}`
+      : p === "Audience profile" && activeAudience
+        ? `/audiences/${encodeURIComponent(activeAudience.name)}`
+        : pathForPage(p);
+    if (normalizePath(window.location.pathname) !== path) {
+      window.history.pushState({}, "", path);
+    }
     setPage(p);
     setMobile(false);
     setSelected([]);
   };
+  const normalizeModalRoute = () => {
+    const path = normalizePath(window.location.pathname);
+    if (path.toLowerCase() === "/contacts/new") {
+      window.history.replaceState({}, "", "/contacts");
+    } else {
+      const edit = path.match(/^\/(?:contacts|contact)\/([^/]+)\/edit$/i);
+      if (edit) window.history.replaceState({}, "", `/contacts/${edit[1]}`);
+    }
+  };
   const openContactProfile = (contact: Contact) => {
+    const key = contact.id || contact.email;
+    window.history.pushState({}, "", `/contacts/${encodeURIComponent(key)}`);
     setActiveContact(contact);
     setPage("Contact profile");
     setMobile(false);
@@ -711,6 +776,73 @@ export function CRMApp({
       "Profile viewed",
     );
   };
+  useEffect(() => {
+    const normalized = normalizePath(window.location.pathname);
+    if (normalized !== window.location.pathname) window.history.replaceState({}, "", normalized);
+    const syncRoute = () => {
+      const routePath = normalizePath(window.location.pathname);
+      const nextPage = pageForPath(routePath);
+      setPage(nextPage);
+      setSelected([]);
+      const match = routePath.match(/^\/(?:contacts|contact)\/([^/]+)(?:\/edit)?$/i);
+      if (nextPage === "Contact profile" && match && match[1].toLowerCase() !== "edit") {
+        const key = decodeURIComponent(match[1]);
+        setActiveContact(contacts.find((item) => item.id === key || item.email.toLowerCase() === key.toLowerCase()) ?? null);
+        setModal(/\/edit$/i.test(routePath) ? "edit-contact" : "");
+      } else {
+        setActiveContact(null);
+        setModal("");
+      }
+    };
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, [contacts]);
+  useEffect(() => {
+    if (page !== "Contact profile") return;
+    const match = normalizePath(window.location.pathname).match(/^\/(?:contacts|contact)\/([^/]+)(?:\/edit)?$/i);
+    if (!match || match[1].toLowerCase() === "edit") return;
+    const key = decodeURIComponent(match[1]);
+    const contact = contacts.find((item) => item.id === key || item.email.toLowerCase() === key.toLowerCase());
+    setActiveContact(contact ?? null);
+    if (contact && /\/edit$/i.test(normalizePath(window.location.pathname))) setModal("edit-contact");
+    else if (!/\/edit$/i.test(normalizePath(window.location.pathname))) setModal("");
+  }, [contacts, page]);
+  useEffect(() => {
+    if (page !== "Audience profile") return;
+    const match = normalizePath(window.location.pathname).match(/^\/audiences\/([^/]+)$/i);
+    if (!match) {
+      setActiveAudience(null);
+      return;
+    }
+    const name = decodeURIComponent(match[1]);
+    const draft = audienceDrafts.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (draft) {
+      setActiveAudience({
+        name: draft.name,
+        type: draft.type,
+        description: `${draft.rules.length} saved conditions`,
+        count: String(draft.members.length),
+        updated: "Saved in preview",
+        tone: "violet",
+        rules: draft.rules,
+        members: draft.members,
+        isSample: false,
+      });
+      return;
+    }
+    const sample = audienceSamples.find((item) => item[0].toLowerCase() === name.toLowerCase());
+    setActiveAudience(sample ? {
+      name: sample[0],
+      type: sample[1],
+      description: sample[2],
+      count: sample[3],
+      updated: sample[4],
+      tone: sample[5],
+      rules: [],
+      members: [],
+      isSample: true,
+    } : null);
+  }, [audienceDrafts, page]);
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -751,6 +883,7 @@ export function CRMApp({
       `${contact.name} · ${contact.email}`,
       "Contact created",
     );
+    normalizeModalRoute();
     setModal("");
     notify("Contact saved to the CRM");
   };
@@ -823,6 +956,7 @@ export function CRMApp({
       `${contact.name} - ${changes.join(", ") || "record details"}`,
       "Contact updated",
     );
+    normalizeModalRoute();
     setModal("");
     notify("Contact updated in the CRM");
   };
@@ -1089,14 +1223,15 @@ export function CRMApp({
     setSegmentSeedContacts(members);
     setSelected([]);
     setModal("segment");
-    setPage("Audiences");
+    go("Audiences");
   };
   const openCampaignForAudience = (name: string) => {
     setCampaignAudienceSeed(name);
-    setPage("Email campaigns");
+    go("Email campaigns");
     setModal("email");
   };
   const openAudienceDetails = (audience: AudienceRecord) => {
+    window.history.pushState({}, "", `/audiences/${encodeURIComponent(audience.name)}`);
     setActiveAudience(audience);
     setPage("Audience profile");
     setSelected([]);
@@ -1185,7 +1320,7 @@ export function CRMApp({
         : template.channel === "SMS"
           ? "Bulk SMS"
           : "Email campaigns";
-    setPage(page);
+    go(page);
     setModal(
       template.channel === "WhatsApp"
         ? "whatsapp"
@@ -1925,12 +2060,24 @@ export function CRMApp({
                     .toLowerCase()
                     .includes(activeContact.name.toLowerCase()),
               )}
-              onBack={() => setPage("Contacts")}
+              onBack={() => go("Contacts")}
               notify={notify}
-              onEdit={() => setModal("edit-contact")}
+              onEdit={() => {
+                const key = activeContact.id || activeContact.email;
+                window.history.pushState({}, "", `/contacts/${encodeURIComponent(key)}/edit`);
+                setModal("edit-contact");
+              }}
               onStartCampaign={() =>
                 openCampaignForAudience(activeContact.name)
               }
+            />
+          )}
+          {page === "Contact profile" && !activeContact && (
+            <PageHeading
+              eyebrow="CONTACTS"
+              title="Contact not found"
+              desc="This contact may have been removed or the link may be incorrect."
+              action={<button className="btn secondary" onClick={() => go("Contacts")}>Back to contacts</button>}
             />
           )}
           {page === "Audiences" && (
@@ -1944,8 +2091,16 @@ export function CRMApp({
           {page === "Audience profile" && activeAudience && (
             <AudienceProfile
               audience={activeAudience}
-              onBack={() => setPage("Audiences")}
+              onBack={() => go("Audiences")}
               openCampaign={openCampaignForAudience}
+            />
+          )}
+          {page === "Audience profile" && !activeAudience && (
+            <PageHeading
+              eyebrow="AUDIENCES"
+              title="Audience not found"
+              desc="Open the audience list and choose a group to view its profile."
+              action={<button className="btn secondary" onClick={() => go("Audiences")}>Back to audiences</button>}
             />
           )}
           {page === "Help centre" && (
@@ -2037,6 +2192,7 @@ export function CRMApp({
         <ModalDialog
           kind={modal}
           close={() => {
+            normalizeModalRoute();
             setModal("");
             setCampaignAudienceSeed("");
             setCampaignTemplateSeed(null);

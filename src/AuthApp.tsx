@@ -12,10 +12,11 @@ const authEmailOtp = authClient as typeof authClient & {
 
 type AuthUser = { name: string; email: string };
 type AuthMode = "sign-up" | "sign-in";
+const normalizeAuthPath = (pathname: string) => `/${pathname.split("/").filter(Boolean).join("/")}`;
 
 export default function AuthApp() {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [mode, setMode] = useState<AuthMode>("sign-up");
+  const [mode, setMode] = useState<AuthMode>(() => normalizeAuthPath(window.location.pathname) === "/login" ? "sign-in" : "sign-up");
   const [organizationName, setOrganizationName] = useState("");
   const [email, setEmail] = useState("");
   const [verificationPending, setVerificationPending] = useState(false);
@@ -50,6 +51,34 @@ export default function AuthApp() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const path = normalizeAuthPath(window.location.pathname).toLowerCase();
+      if (path === "/login") setMode("sign-in");
+      else if (path === "/signup" || path === "/") setMode("sign-up");
+      else if (!user && !verificationPending) setMode("sign-in");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [user, verificationPending]);
+
+  useEffect(() => {
+    if (loading) return;
+    const current = normalizeAuthPath(window.location.pathname).toLowerCase();
+    let next = current;
+    if (user) {
+      if (["/", "/login", "/signup", "/verify-email"].includes(current)) next = "/dashboard";
+    } else if (verificationPending) {
+      next = "/verify-email";
+    } else if (["/", "/login", "/signup"].includes(current)) {
+      next = mode === "sign-in" ? "/login" : "/signup";
+    } else {
+      next = "/login";
+      setMode("sign-in");
+    }
+    if (next !== current) window.history.replaceState({}, "", next);
+  }, [loading, mode, user, verificationPending]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
