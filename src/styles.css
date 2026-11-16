@@ -5193,6 +5193,28 @@ tbody tr:hover {
   cursor: pointer;
 }
 
+.auth-forgot-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -8px;
+}
+
+.auth-forgot {
+  padding: 0;
+  border: 0;
+  color: #674ac0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.auth-forgot:hover,
+.auth-switch button:hover {
+  text-decoration: underline;
+}
+
 .auth-spinner {
   animation: auth-spin 0.9s linear infinite;
 }
