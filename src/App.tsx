@@ -6451,7 +6451,7 @@ function ModalDialog({
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) close(); }}>
       <div
-        className="modal"
+        className={`modal ${kind === "email" ? "modal-campaign-builder" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
