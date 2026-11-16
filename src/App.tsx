@@ -2441,6 +2441,9 @@ export function CRMApp({
           {page === "Scheduled" && (
             <ScheduledPreview
               records={campaignRecords}
+              loading={campaignsLoading}
+              error={campaignsError}
+              reload={() => setCampaignsReloadKey((key) => key + 1)}
               notify={notify}
               setModal={setModal}
               cancelScheduled={cancelScheduled}
@@ -4476,12 +4479,18 @@ function ReportsDashboard({
 }
 function ScheduledPreview({
   records,
+  loading,
+  error,
+  reload,
   notify,
   setModal,
   cancelScheduled,
   togglePause,
 }: {
   records: Campaign[];
+  loading: boolean;
+  error: string;
+  reload: () => void;
   notify: (s: string) => void;
   setModal: (s: string) => void;
   cancelScheduled: (campaign: Campaign) => Promise<void>;
@@ -4515,6 +4524,14 @@ function ScheduledPreview({
       return date;
     }),
   ];
+  if (loading || error) {
+    return <>
+      <PageHeading eyebrow="SCHEDULED · LIVE" title="Scheduled campaigns" desc="Review and manage campaigns scheduled through the CRM API." action={<button className="btn primary" onClick={() => setModal("email")}><Plus size={16} /> Create campaign</button>} />
+      <div className="empty-state" aria-live="polite" role={error ? "alert" : undefined}>
+        {error ? <><b>Could not load scheduled campaigns</b><span>{error}</span><button className="btn secondary" onClick={reload}>Retry</button></> : <><LoaderCircle className="spin" size={20} /><b>Loading scheduled campaigns…</b></>}
+      </div>
+    </>;
+  }
   return (
     <>
       <PageHeading
