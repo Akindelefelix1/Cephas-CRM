@@ -2735,7 +2735,9 @@ tbody tr:hover {
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 3px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 .segment-type-help:hover .segment-type-tooltip,
 .segment-type-help:focus-visible .segment-type-tooltip {
@@ -5296,7 +5298,9 @@ tbody tr:hover {
   border-radius: 10px;
   padding: 11px 13px;
   font-size: 13px;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 .modal-campaign-builder .form-label input:focus,
 .modal-campaign-builder .form-label select:focus,
@@ -5336,7 +5340,10 @@ tbody tr:hover {
   padding: 8px 12px;
   border-radius: 9px;
   font-size: 12px;
-  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
 }
 .modal-campaign-builder .email-editor-toolbar button:hover {
   border-color: #cfc8f7;
@@ -5436,7 +5443,11 @@ tbody tr:hover {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 12% 16%, rgba(115, 87, 210, 0.12), transparent 34%),
+    radial-gradient(
+      circle at 12% 16%,
+      rgba(115, 87, 210, 0.12),
+      transparent 34%
+    ),
     #f7f7fb;
 }
 
@@ -5599,7 +5610,9 @@ tbody tr:hover {
 }
 
 @keyframes auth-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .account-logout,
@@ -5688,7 +5701,16 @@ tbody tr:hover {
 }
 
 @media (max-width: 520px) {
-  .auth-card { padding: 28px 22px; }
-  .account-logout { min-height: 30px; padding: 0 8px; }
-  .audience-list-controls { align-items: stretch; flex-direction: column; width: 100%; }
+  .auth-card {
+    padding: 28px 22px;
+  }
+  .account-logout {
+    min-height: 30px;
+    padding: 0 8px;
+  }
+  .audience-list-controls {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
 }
