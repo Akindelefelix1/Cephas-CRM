@@ -1,6 +1,6 @@
 # Cephas CRM UI
 
-A responsive, TypeScript-first React UI based on the Cephas CRM software requirements document. This is a front-end preview with sample records; it does not connect to a CRM API, email/SMS provider, authentication service, or durable audit store.
+A responsive, TypeScript-first React UI based on the Cephas CRM software requirements document. Email account creation, sign-in, session restoration, and sign-out use Neon Managed Better Auth. CRM records remain preview data held in the browser session; they are not yet connected to the CRM API or durable audit store.
 
 ## Run locally
 
@@ -10,6 +10,8 @@ npm run dev
 ```
 
 Create a production build with `npm run build`.
+
+The local `.env.local` file needs `VITE_NEON_AUTH_URL` set to the branch's Neon Auth Base URL. To deploy the static site, set the same variable in the hosting provider's build environment. This is a public client URL; do not put `DATABASE_URL` or other server credentials in the Vite environment.
 
 ## Deploy to Render
 
@@ -22,7 +24,7 @@ This project is configured as a Render Static Site in `render.yaml`.
 
 To configure the site manually instead, create a **Static Site** and use build command `npm ci && npm run build` and publish directory `dist`. Add a rewrite rule with source `/*` and destination `/index.html` for client-side navigation fallback.
 
-The UI preview currently needs no environment variables. Its sample data and edits are held in the browser session, so they are not shared between visitors or devices and will not provide durable CRM storage.
+Sample contact, campaign, and audience edits are held in the browser session, so they are not shared between visitors or devices and will not provide durable CRM storage.
 
 ## Included UI areas
 

@@ -25,6 +25,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   ListFilter,
+  LogOut,
   Mail,
   Menu,
   MessageCircle,
@@ -572,7 +573,19 @@ function Badge({
     </span>
   );
 }
-function App() {
+export function CRMApp({
+  account,
+  onSignOut,
+}: {
+  account: { name: string; email: string };
+  onSignOut: () => Promise<void>;
+}) {
+  const accountName = account.name || account.email;
+  const accountInitials = accountName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
   const toastTimer = useRef<number | undefined>(undefined);
   const [page, setPage] = useState<Page>("Dashboard"),
     [contacts, setContacts] = useState(initialContacts),
@@ -1490,12 +1503,20 @@ function App() {
             <ArrowUpRight size={14} />
           </button>
           <div className="profile">
-            <div className="avatar user-avatar">AO</div>
+            <div className="avatar user-avatar">{accountInitials}</div>
             <div>
-              <b>Amara Okafor</b>
-              <small>Superadmin</small>
+              <b>{accountName}</b>
+              <small>{account.email}</small>
             </div>
-            <MoreHorizontal size={18} />
+            <button
+              className="profile-signout"
+              type="button"
+              aria-label="Sign out"
+              title="Sign out"
+              onClick={() => void onSignOut()}
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
@@ -1545,11 +1566,19 @@ function App() {
               <i />
             </button>
             <span className="top-divider" />
-            <div className="avatar user-avatar">AO</div>
+            <div className="avatar user-avatar">{accountInitials}</div>
             <div className="account-name">
-              <b>Amara Okafor</b>
-              <small>Superadmin</small>
+              <b>{accountName}</b>
+              <small>{account.email}</small>
             </div>
+            <button
+              className="account-logout"
+              type="button"
+              onClick={() => void onSignOut()}
+            >
+              <LogOut size={15} />
+              <span>Log out</span>
+            </button>
           </div>
         </header>
         <div className="content">
@@ -6821,4 +6850,3 @@ function ModalDialog({
     </div>
   );
 }
-export default App;
