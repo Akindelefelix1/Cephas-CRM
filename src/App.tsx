@@ -1508,13 +1508,6 @@ export function CRMApp({
             <ChevronLeft size={17} />
           </button>
         </div>
-        <div className="workspace">
-          <div className="workspace-icon">C</div>
-          <span>
-            <b>Cephas People</b>
-            <small>CRM workspace</small>
-          </span>
-        </div>
         <div className="nav-groups">
           {navGroups.map((group) => (
             <div className="nav-group" key={group.label}>
