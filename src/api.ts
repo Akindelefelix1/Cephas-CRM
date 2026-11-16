@@ -38,6 +38,38 @@ export type ApiAudienceInput = {
   rules: Array<{ field: string; operator: string; value: string }>;
   contactIds?: string[];
 };
+export type ApiCampaign = {
+  id: string;
+  name: string;
+  channel: "Email" | "SMS" | "WhatsApp";
+  status: string;
+  objective: string;
+  subject: string;
+  blocks: string | { id: string; type: "text" | "image" | "link" | "button" | "divider"; content: string; url?: string }[];
+  includedAudiences: string[];
+  excludedAudiences: string[];
+  excludedContacts: string[];
+  attachmentNames: string[];
+  scheduledAt: string | null;
+  sentAt: string | null;
+  recipientCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApiCampaignInput = {
+  name: string;
+  objective: string;
+  subject: string;
+  blocks: ApiCampaign["blocks"];
+  includedAudiences: string[];
+  excludedAudiences: string[];
+  excludedContacts: string[];
+  attachments: string[];
+  scheduledAt?: string;
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}/api${path}`, {
@@ -95,6 +127,16 @@ export const crmApi = {
     request<{ added: number }>(`/audiences/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ contactIds }) }),
   removeAudienceMember: (id: string, contactId: string) =>
     request<{ removed: boolean; contactId: string }>(`/audiences/${encodeURIComponent(id)}/members/${encodeURIComponent(contactId)}`, { method: "DELETE" }),
+  listCampaigns: () => request<ApiCampaign[]>("/campaigns"),
+  createCampaign: (campaign: ApiCampaignInput) => request<ApiCampaign>("/campaigns", { method: "POST", body: JSON.stringify(campaign) }),
+  updateCampaign: (id: string, campaign: ApiCampaignInput) => request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(campaign) }),
+  requestCampaignApproval: (id: string) => request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}/request-approval`, { method: "POST" }),
+  approveCampaign: (id: string) => request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+  scheduleCampaign: (id: string) => request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}/schedule`, { method: "POST" }),
+  sendCampaign: (id: string) => request<ApiCampaign & { delivery: { total: number; sent: number; failed: number; errors: string[] } }>(`/campaigns/${encodeURIComponent(id)}/send`, { method: "POST" }),
+  sendCampaignTest: (to: string, subject: string, blocks: NonNullable<ApiCampaignInput["blocks"]>) => request<{ sent: boolean; to: string }>("/campaigns/test", { method: "POST", body: JSON.stringify({ to, subject, blocks }) }),
+  cancelCampaign: (id: string) => request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  pauseCampaign: (id: string, paused: boolean) => request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}/pause`, { method: "PATCH", body: JSON.stringify({ paused }) }),
 };
 
 export function contactFromApi(contact: ApiContact) {

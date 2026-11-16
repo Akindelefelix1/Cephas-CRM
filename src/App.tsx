@@ -45,7 +45,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { contactFromApi, crmApi, type ApiAudience, type ApiAudienceDetail, type ApiContact } from "./api";
+import { contactFromApi, crmApi, type ApiAudience, type ApiAudienceDetail, type ApiCampaign, type ApiContact } from "./api";
 
 type Page =
   | "Dashboard"
@@ -129,6 +129,7 @@ type Contact = {
   date: string;
 };
 type Campaign = {
+  id?: string;
   name: string;
   channel: "Email" | "SMS" | "WhatsApp";
   audience: string;
@@ -145,6 +146,22 @@ type Campaign = {
   includedAudiences?: string[];
   excludedAudiences?: string[];
   excludedContacts?: string[];
+  lastError?: string | null;
+};
+const campaignFromApi = (row: ApiCampaign): Campaign => {
+  let emailBlocks: EmailBlock[] = [];
+  try { emailBlocks = typeof row.blocks === "string" ? JSON.parse(row.blocks) as EmailBlock[] : row.blocks; } catch { emailBlocks = []; }
+  const subject = row.subject;
+  const message = `Subject: ${subject}\n\n${emailBlocks.map((block) => block.content).filter(Boolean).join("\n\n")}`;
+  return {
+    id: row.id, name: row.name, channel: row.channel, audience: row.includedAudiences.join(", ") || "Not selected",
+    status: row.status, reach: String(row.recipientCount || "—"), engagement: "—",
+    date: row.scheduledAt ? new Date(row.scheduledAt).toLocaleString() : new Date(row.createdAt).toLocaleDateString(),
+    tone: "violet", objective: row.objective, message, scheduledAt: row.scheduledAt ?? undefined,
+    emailBlocks, attachments: row.attachmentNames, includedAudiences: row.includedAudiences,
+    excludedAudiences: row.excludedAudiences, excludedContacts: row.excludedContacts,
+    lastError: row.lastError,
+  };
 };
 type AuditEvent = [string, string, string, string, string, string];
 type FilterRule = { field: string; operator: string; value: string };
@@ -589,10 +606,14 @@ export function CRMApp({
     [contactsError, setContactsError] = useState(""),
     [contactsReloadKey, setContactsReloadKey] = useState(0),
     [activeContact, setActiveContact] = useState<Contact | null>(null),
-    [campaignRecords, setCampaignRecords] = useState<Campaign[]>(campaigns),
+    [campaignRecords, setCampaignRecords] = useState<Campaign[]>([]),
+    [campaignsLoading, setCampaignsLoading] = useState(true),
+    [campaignsError, setCampaignsError] = useState(""),
+    [campaignsReloadKey, setCampaignsReloadKey] = useState(0),
     [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>([]),
     [campaignTemplateSeed, setCampaignTemplateSeed] =
       useState<TemplateDraft | null>(null),
+    [campaignEditId, setCampaignEditId] = useState<string | null>(null),
     [activeAudience, setActiveAudience] = useState<AudienceRecord | null>(null),
     [audienceDrafts, setAudienceDrafts] = useState<AudienceDraft[]>([]),
     [audienceLoading, setAudienceLoading] = useState(true),
@@ -666,6 +687,17 @@ export function CRMApp({
     }).finally(() => { if (active) setAudienceLoading(false); });
     return () => { active = false; };
   }, [audienceReloadKey]);
+  useEffect(() => {
+    let active = true;
+    setCampaignsLoading(true);
+    setCampaignsError("");
+    crmApi.listCampaigns().then((rows) => {
+      if (active) setCampaignRecords(rows.map(campaignFromApi));
+    }).catch((error: unknown) => {
+      if (active) setCampaignsError(error instanceof Error ? error.message : "Could not load campaigns from the CRM API");
+    }).finally(() => { if (active) setCampaignsLoading(false); });
+    return () => { active = false; };
+  }, [campaignsReloadKey]);
   const toApiContact = (contact: Contact): Omit<ApiContact, "id" | "createdAt"> => {
     const [firstName, ...lastNames] = contact.name.trim().split(/\s+/);
     return {
@@ -1095,7 +1127,7 @@ export function CRMApp({
       setDeletingContacts(false);
     }
   };
-  const addCampaignDraft = (
+  const addCampaignDraft = async (
     channel: "Email" | "SMS" | "WhatsApp",
     name: string,
     audience: string,
@@ -1110,9 +1142,28 @@ export function CRMApp({
       excludedAudiences: string[];
       excludedContacts: string[];
     },
+    campaignId?: string | null,
   ) => {
-    setCampaignRecords((current) => [
-      {
+    let saved: Campaign;
+    let scheduleFailure = "";
+    if (channel === "Email") {
+      const subjectMatch = message.match(/^Subject: ([^\n]*)\n\n/);
+      const input = {
+        name,
+        objective,
+        subject: subjectMatch?.[1] ?? "",
+        blocks: emailBlocks ?? [],
+        includedAudiences: targeting?.includedAudiences ?? [],
+        excludedAudiences: targeting?.excludedAudiences ?? [],
+        excludedContacts: targeting?.excludedContacts ?? [],
+        attachments: attachments ?? [],
+        ...(scheduledAt ? { scheduledAt: new Date(scheduledAt).toISOString() } : {}),
+      };
+      const result = campaignId ? await crmApi.updateCampaign(campaignId, input) : await crmApi.createCampaign(input);
+      saved = campaignFromApi(result);
+      if (scheduledAt && result.status !== "Scheduled") scheduleFailure = result.lastError || "Zoho Campaigns could not schedule the campaign";
+    } else {
+      saved = {
         name,
         channel,
         audience: audience || "Not selected",
@@ -1122,42 +1173,64 @@ export function CRMApp({
         date: scheduledAt
           ? new Date(scheduledAt).toLocaleString()
           : new Date().toLocaleDateString(),
-        tone: channel === "Email" ? "violet" : "green",
+        tone: "green",
         objective,
         message,
         scheduledAt: scheduledAt || undefined,
         emailBlocks,
         attachments,
         ...targeting,
-      },
-      ...current,
-    ]);
+      };
+    }
+    setCampaignRecords((current) => campaignId ? current.map((item) => item.id === campaignId ? saved : item) : [saved, ...current]);
     recordAudit(
-      status === "Scheduled" ? "Scheduled campaign" : "Created campaign draft",
+      campaignId ? "Updated email campaign" : status === "Scheduled" ? "Scheduled campaign" : "Created campaign draft",
       `${name} · ${channel}`,
       status === "Scheduled" ? "Campaign schedule" : "Campaign draft",
     );
     setModal("");
     setCampaignAudienceSeed("");
     setCampaignTemplateSeed(null);
-    notify(
-      status === "Scheduled"
-        ? "Campaign scheduled in this preview; no provider delivery is connected"
-        : "Campaign draft saved in this preview",
-    );
+    setCampaignEditId(null);
+    notify(scheduleFailure
+      ? `${name} saved as a draft. Scheduling failed: ${scheduleFailure}`
+      : campaignId ? "Email campaign changes saved" : status === "Scheduled" ? "Email campaign saved and scheduled with Zoho Campaigns" : "Email campaign draft saved");
   };
-  const requestCampaignApproval = (name: string) => {
-    setCampaignRecords((current) =>
-      current.map((campaign) =>
-        campaign.name === name
-          ? { ...campaign, status: "Pending approval" }
-          : campaign,
-      ),
-    );
-    recordAudit("Submitted campaign for approval", name, "Campaign approval");
-    notify("Campaign submitted for approval in this preview");
+  const updateCampaignRecord = (updated: ApiCampaign) => {
+    const next = campaignFromApi(updated);
+    setCampaignRecords((current) => current.map((campaign) => campaign.id === updated.id ? next : campaign));
+    return next;
+  };
+  const requestCampaignApproval = async (campaign: Campaign) => {
+    if (!campaign.id) return;
+    updateCampaignRecord(await crmApi.approveCampaign(campaign.id));
+    recordAudit("Submitted campaign for approval", campaign.name, "Campaign approval");
+    notify(`${campaign.name} submitted for approval`);
+  };
+  const approveCampaign = async (campaign: Campaign) => {
+    if (!campaign.id) return;
+    updateCampaignRecord(await crmApi.approveCampaign(campaign.id));
+    recordAudit("Approved campaign", campaign.name, "Campaign approval");
+    notify(`${campaign.name} approved and ready to send`);
+  };
+  const scheduleCampaign = async (campaign: Campaign) => {
+    if (!campaign.id) return;
+    const result = await crmApi.scheduleCampaign(campaign.id);
+    updateCampaignRecord(result);
+    recordAudit("Scheduled campaign", campaign.name, "Campaign schedule");
+    notify(`${campaign.name} scheduled with Zoho Campaigns`);
+  };
+  const sendCampaign = async (campaign: Campaign) => {
+    if (!campaign.id) return;
+    const result = await crmApi.sendCampaign(campaign.id);
+    updateCampaignRecord(result);
+    recordAudit("Submitted email campaign to Zoho Campaigns", `${campaign.name} · ${result.delivery.sent} recipients · ${result.delivery.failed} errors`, "Campaign sent");
+    notify(result.delivery.failed
+      ? `${campaign.name}: ${result.delivery.sent} sent, ${result.delivery.failed} failed. Review campaign details before retrying.`
+      : `${campaign.name} submitted to Zoho Campaigns for ${result.delivery.sent} subscribed contacts`);
   };
   const duplicateCampaign = (campaign: Campaign) => {
+    setCampaignEditId(null);
     const baseName = `${campaign.name} copy`;
     let copyName = baseName;
     let suffix = 2;
@@ -1203,34 +1276,37 @@ export function CRMApp({
     );
     recordAudit("Started campaign duplicate", campaign.name, "Campaign draft");
   };
-  const cancelScheduled = (name: string) => {
-    setCampaignRecords((current) =>
-      current.map((campaign) =>
-        campaign.name === name
-          ? { ...campaign, status: "Cancelled" }
-          : campaign,
-      ),
-    );
-    recordAudit("Cancelled scheduled campaign", name, "Campaign schedule");
-    notify(`${name} cancelled in this preview`);
+  const editCampaign = (campaign: Campaign) => {
+    if (!campaign.id || campaign.status !== "Draft") return;
+    const subject = campaign.message?.match(/^Subject: ([^\n]*)/)?.[1] ?? "";
+    setCampaignTemplateSeed({
+      name: campaign.name, channel: "Email", subject, body: "",
+      emailBlocks: campaign.emailBlocks ?? [], attachments: campaign.attachments,
+      objective: campaign.objective, excludedAudiences: campaign.excludedAudiences,
+      excludedContacts: campaign.excludedContacts,
+    });
+    setCampaignAudienceSeed(campaign.includedAudiences?.join(", ") ?? "");
+    setCampaignEditId(campaign.id);
+    setModal("email");
   };
-  const toggleScheduledPause = (name: string, paused: boolean) => {
-    setCampaignRecords((current) =>
-      current.map((campaign) =>
-        campaign.name === name
-          ? { ...campaign, status: paused ? "Paused" : "Scheduled" }
-          : campaign,
-      ),
-    );
+  const cancelScheduled = async (campaign: Campaign) => {
+    if (!campaign.id) return;
+    updateCampaignRecord(await crmApi.cancelCampaign(campaign.id));
+    recordAudit("Cancelled scheduled campaign", campaign.name, "Campaign schedule");
+    notify(`${campaign.name} cancelled`);
+  };
+  const toggleScheduledPause = async (campaign: Campaign, paused: boolean) => {
+    if (!campaign.id) return;
+    updateCampaignRecord(await crmApi.pauseCampaign(campaign.id, paused));
     recordAudit(
       paused ? "Paused scheduled campaign" : "Resumed scheduled campaign",
-      name,
+      campaign.name,
       "Campaign schedule",
     );
     notify(
       paused
-        ? `${name} paused in this preview`
-        : `${name} returned to the schedule in this preview`,
+        ? `${campaign.name} paused`
+        : `${campaign.name} returned to the schedule`,
     );
   };
   const addAudienceDraft = async (
@@ -2305,10 +2381,17 @@ export function CRMApp({
             <CampaignPageFunctional
               channel="Email"
               records={campaignRecords}
+              loading={campaignsLoading}
+              error={campaignsError}
+              reload={() => setCampaignsReloadKey((key) => key + 1)}
               setModal={setModal}
               notify={notify}
               recordAudit={recordAudit}
               requestApproval={requestCampaignApproval}
+              approveCampaign={approveCampaign}
+              scheduleCampaign={scheduleCampaign}
+              editCampaign={editCampaign}
+              sendCampaign={sendCampaign}
               duplicateCampaign={duplicateCampaign}
             />
           )}
@@ -2316,10 +2399,17 @@ export function CRMApp({
             <CampaignPageFunctional
               channel="SMS"
               records={campaignRecords}
+              loading={campaignsLoading}
+              error={campaignsError}
+              reload={() => setCampaignsReloadKey((key) => key + 1)}
               setModal={setModal}
               notify={notify}
               recordAudit={recordAudit}
               requestApproval={requestCampaignApproval}
+              approveCampaign={approveCampaign}
+              scheduleCampaign={scheduleCampaign}
+              editCampaign={editCampaign}
+              sendCampaign={sendCampaign}
               duplicateCampaign={duplicateCampaign}
             />
           )}
@@ -2327,10 +2417,17 @@ export function CRMApp({
             <CampaignPageFunctional
               channel="WhatsApp"
               records={campaignRecords}
+              loading={campaignsLoading}
+              error={campaignsError}
+              reload={() => setCampaignsReloadKey((key) => key + 1)}
               setModal={setModal}
               notify={notify}
               recordAudit={recordAudit}
               requestApproval={requestCampaignApproval}
+              approveCampaign={approveCampaign}
+              scheduleCampaign={scheduleCampaign}
+              editCampaign={editCampaign}
+              sendCampaign={sendCampaign}
               duplicateCampaign={duplicateCampaign}
             />
           )}
@@ -2375,8 +2472,8 @@ export function CRMApp({
           {page === "Leads" && <ComingSoon />}
           <footer className="footer">
             <span>© 2026 Cephas People</span>
-            <span>UI preview · no live provider connection</span>
-            <span>Sample data · UI preview</span>
+            <span>{page === "Email campaigns" ? "Campaign records via CRM API" : "Cephas People CRM"}</span>
+            <span>{page === "Email campaigns" ? "Delivery via Zoho Campaigns" : "Workspace"}</span>
           </footer>
         </div>
       </main>
@@ -2388,15 +2485,17 @@ export function CRMApp({
             setModal("");
             setCampaignAudienceSeed("");
             setCampaignTemplateSeed(null);
+            setCampaignEditId(null);
             setAudienceEditSeed(null);
             setSegmentSeedContacts([]);
           }}
           save={addContact}
           saveContact={modal === "edit-contact" ? updateContact : addContact}
           initialContact={modal === "edit-contact" ? activeContact : null}
-          campaignNames={campaignRecords.map((campaign) => campaign.name)}
+          campaignNames={campaignRecords.filter((campaign) => campaign.id !== campaignEditId).map((campaign) => campaign.name)}
           categories={categories}
           saveDraft={addCampaignDraft}
+          campaignEditId={campaignEditId}
           saveAudience={addAudienceDraft}
           initialMembers={modal === "edit-audience" ? (audienceEditSeed?.members ?? []) : segmentSeedContacts}
           initialAudienceRecord={modal === "edit-audience" ? audienceEditSeed : null}
@@ -3494,11 +3593,21 @@ function PerformanceChart() {
 function CampaignTable({
   rows,
   onRequestApproval,
+  onApprove,
+  onSchedule,
+  onEdit,
+  onSend,
   onDuplicate,
+  busyId,
 }: {
   rows: typeof campaigns;
-  onRequestApproval?: (name: string) => void;
+  onRequestApproval?: (campaign: Campaign) => void;
+  onApprove?: (campaign: Campaign) => void;
+  onSchedule?: (campaign: Campaign) => void;
+  onEdit?: (campaign: Campaign) => void;
+  onSend?: (campaign: Campaign) => void;
   onDuplicate?: (campaign: Campaign) => void;
+  busyId?: string;
 }) {
   return (
     <div className="table-scroll">
@@ -3512,12 +3621,12 @@ function CampaignTable({
             <th>REACH</th>
             <th>ENGAGEMENT</th>
             <th>DATE</th>
-            {(onRequestApproval || onDuplicate) && <th>ACTION</th>}
+            {(onRequestApproval || onSchedule || onEdit || onSend || onDuplicate) && <th>ACTION</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((c) => (
-            <tr key={c.name}>
+            <tr key={c.id ?? c.name}>
               <td>
                 <div className="campaign-name">
                   <span className={`campaign-mark ${c.tone}`}>
@@ -3557,20 +3666,36 @@ function CampaignTable({
               <td>{c.reach}</td>
               <td>{c.engagement}</td>
               <td>{c.date}</td>
-              {(onRequestApproval || onDuplicate) && (
+              {(onRequestApproval || onSchedule || onEdit || onSend || onDuplicate) && (
                 <td>
                   {onRequestApproval && c.status === "Draft" ? (
                     <button
                       className="text-link"
-                      onClick={() => onRequestApproval(c.name)}
+                  disabled={Boolean(busyId)}
+                      onClick={() => onRequestApproval(c)}
                     >
-                      Submit for approval
+                      {busyId === (c.id ?? c.name) ? "Saving..." : "Submit for approval"}
                     </button>
                   ) : onRequestApproval && c.status === "Pending approval" ? (
-                    <Badge tone="Pending">In review</Badge>
+                    <button className="text-link" disabled={Boolean(busyId)} onClick={() => onApprove?.(c)}>
+                      {busyId === (c.id ?? c.name) ? "Approving..." : "Approve"}
+                    </button>
                   ) : onRequestApproval ? (
                     <span className="muted-cell">—</span>
                   ) : null}
+                  {onEdit && c.status === "Draft" && (
+                    <button className="text-link" disabled={Boolean(busyId)} onClick={() => onEdit(c)}>Edit</button>
+                  )}
+                  {onSchedule && c.status === "Draft" && c.scheduledAt && (
+                    <button className="text-link" disabled={Boolean(busyId)} onClick={() => onSchedule(c)}>
+                      {busyId === (c.id ?? c.name) ? "Scheduling..." : "Retry schedule"}
+                    </button>
+                  )}
+                  {onSend && ["Draft", "Approved", "Failed", "Sent with failures"].includes(c.status) && (
+                    <button className="text-link" disabled={Boolean(busyId)} onClick={() => onSend(c)}>
+                      {busyId === (c.id ?? c.name) ? "Sending..." : c.status === "Draft" ? "Send now" : "Retry send"}
+                    </button>
+                  )}
                   {onDuplicate && (
                     <button
                       className="text-link"
@@ -3591,34 +3716,59 @@ function CampaignTable({
 function CampaignPageFunctional({
   channel,
   records,
+  loading,
+  error,
+  reload,
   setModal,
   notify,
   recordAudit,
   requestApproval,
+  approveCampaign,
+  scheduleCampaign,
+  editCampaign,
+  sendCampaign,
   duplicateCampaign,
 }: {
   channel: "Email" | "SMS" | "WhatsApp";
   records: typeof campaigns;
+  loading: boolean;
+  error: string;
+  reload: () => void;
   setModal: (s: string) => void;
   notify: (s: string) => void;
   recordAudit: (activity: string, details: string, eventType: string) => void;
-  requestApproval: (name: string) => void;
+  requestApproval: (campaign: Campaign) => Promise<void>;
+  approveCampaign: (campaign: Campaign) => Promise<void>;
+  scheduleCampaign: (campaign: Campaign) => Promise<void>;
+  editCampaign: (campaign: Campaign) => void;
+  sendCampaign: (campaign: Campaign) => Promise<void>;
   duplicateCampaign: (campaign: Campaign) => void;
 }) {
   const [status, setStatus] = useState("All");
+  const [busyId, setBusyId] = useState("");
   const isMail = channel === "Email",
     isWhatsApp = channel === "WhatsApp",
     channelTitle = isMail ? "Email" : isWhatsApp ? "WhatsApp" : "SMS",
     modalKind = isMail ? "email" : isWhatsApp ? "whatsapp" : "sms",
     allRows = records.filter((c) => c.channel === channel),
     rows = allRows.filter((c) => status === "All" || c.status === status);
+  const runAction = async (campaign: Campaign, action: (campaign: Campaign) => Promise<void>) => {
+    if (busyId) return;
+    setBusyId(campaign.id ?? campaign.name);
+    try { await action(campaign); }
+    catch (reason) { notify(`Could not update ${campaign.name}: ${reason instanceof Error ? reason.message : "API error"}`); }
+    finally { setBusyId(""); }
+  };
   const counts = [
     "All",
     "Draft",
     "Pending approval",
+    "Approved",
     "Scheduled",
     "Paused",
     "Sent",
+    "Sent with failures",
+    "Failed",
   ].map(
     (s) =>
       [s, allRows.filter((c) => s === "All" || c.status === s).length] as const,
@@ -3648,7 +3798,7 @@ function CampaignPageFunctional({
   return (
     <>
       <PageHeading
-        eyebrow="COMMUNICATIONS · SAMPLE DATA"
+        eyebrow="COMMUNICATIONS · LIVE CAMPAIGNS"
         title={
           isMail
             ? "Email campaigns"
@@ -3665,7 +3815,7 @@ function CampaignPageFunctional({
         }
         action={
           <>
-            <button className="btn secondary" onClick={exportList}>
+            <button className="btn secondary" disabled={loading || Boolean(error)} onClick={exportList}>
               <ArrowDownToLine size={16} /> Export
             </button>
             <button className="btn primary" onClick={() => setModal(modalKind)}>
@@ -3679,22 +3829,22 @@ function CampaignPageFunctional({
           icon={<Send />}
           label={
             isMail
-              ? "Emails sent"
+            ? "Recipients in sent campaigns"
               : isWhatsApp
                 ? "WhatsApp messages"
                 : "Messages sent"
           }
-          value={isMail ? "24,820" : isWhatsApp ? "1,248" : "3,642"}
-          change="Sample"
+          value={String(allRows.filter((row) => ["Sent", "Sent with failures"].includes(row.status)).reduce((sum, row) => sum + Number(row.reach === "—" ? 0 : row.reach), 0))}
+          change="Live"
           hint="this month"
           color="lav"
         />
         <Stat
           icon={<CheckCheck />}
-          label="Delivered"
-          value={isMail ? "24,422" : isWhatsApp ? "1,196" : "3,526"}
-          change="Sample"
-          hint="illustrative data"
+          label="Campaigns sent"
+          value={String(allRows.filter((row) => ["Sent", "Sent with failures"].includes(row.status)).length)}
+          change="Live"
+          hint="sent campaigns"
           color="green"
         />
         <Stat
@@ -3706,17 +3856,17 @@ function CampaignPageFunctional({
                 ? "Read rate"
                 : "Delivery rate"
           }
-          value={isMail ? "6.8%" : isWhatsApp ? "72.6%" : "96.8%"}
-          change="Sample"
-          hint="illustrative data"
+          value="—"
+          change="Live"
+          hint="tracking unavailable"
           color="blue"
         />
         <Stat
           icon={<Users />}
-          label="Campaigns in preview"
+          label="Saved campaigns"
           value={String(allRows.length)}
-          change="Sample"
-          hint="listed below"
+          change="Live"
+          hint="in this workspace"
           color="orange"
         />
       </div>
@@ -3752,8 +3902,7 @@ function CampaignPageFunctional({
               <span className="light-count">{rows.length} shown</span>
             </h2>
             <p>
-              Illustrative campaign records and local drafts for this UI
-              preview.
+              Email content, recipients, delivery status, and schedules are saved through the CRM API.
             </p>
           </div>
         </div>
@@ -3769,19 +3918,27 @@ function CampaignPageFunctional({
             </button>
           ))}
         </div>
-        {rows.length ? (
+        {error ? (
+          <div className="empty-state" role="alert"><b>Could not load campaigns</b><span>{error}</span><button className="btn secondary" onClick={reload}>Retry</button></div>
+        ) : loading ? (
+          <div className="empty-state" aria-live="polite"><LoaderCircle className="spin" size={20} /><b>Loading campaigns…</b></div>
+        ) : rows.length ? (
           <CampaignTable
             rows={rows}
-            onRequestApproval={requestApproval}
+            onRequestApproval={(campaign) => void runAction(campaign, requestApproval)}
+            onApprove={(campaign) => void runAction(campaign, approveCampaign)}
+            onSchedule={(campaign) => void runAction(campaign, scheduleCampaign)}
+            onEdit={editCampaign}
+            onSend={isMail ? (campaign) => void runAction(campaign, sendCampaign) : undefined}
             onDuplicate={duplicateCampaign}
+            busyId={busyId}
           />
         ) : (
           <div className="empty-state">
             <FileText size={20} />
             <b>No {status.toLowerCase()} campaigns</b>
             <span>
-              There are no {status.toLowerCase()} campaigns in this sample
-              dataset.
+              There are no {status.toLowerCase()} campaigns saved in this workspace.
             </span>
             <button className="btn secondary" onClick={() => setStatus("All")}>
               Show all campaigns
@@ -3790,7 +3947,7 @@ function CampaignPageFunctional({
         )}
         <div className="table-footer">
           <span>
-            Showing <b>{rows.length}</b> of {allRows.length} preview campaigns
+            Showing <b>{rows.length}</b> of {allRows.length} saved campaigns
           </span>
         </div>
       </section>
@@ -4327,10 +4484,18 @@ function ScheduledPreview({
   records: Campaign[];
   notify: (s: string) => void;
   setModal: (s: string) => void;
-  cancelScheduled: (name: string) => void;
-  togglePause: (name: string, paused: boolean) => void;
+  cancelScheduled: (campaign: Campaign) => Promise<void>;
+  togglePause: (campaign: Campaign, paused: boolean) => Promise<void>;
 }) {
   const [calendar, setCalendar] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const runAction = async (campaign: Campaign, action: (campaign: Campaign) => Promise<void>) => {
+    if (busyId) return;
+    setBusyId(campaign.id ?? campaign.name);
+    try { await action(campaign); }
+    catch (reason) { notify(`Could not update ${campaign.name}: ${reason instanceof Error ? reason.message : "API error"}`); }
+    finally { setBusyId(""); }
+  };
   const items = records
     .filter(
       (campaign) =>
@@ -4340,23 +4505,22 @@ function ScheduledPreview({
       ...campaign,
       when: campaign.scheduledAt
         ? `${new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Lagos" }).format(new Date(campaign.scheduledAt))} WAT`
-        : `${campaign.date} · sample time WAT`,
-    }));
+        : campaign.date,
+    }))
+    .sort((left, right) => new Date(left.scheduledAt ?? 0).getTime() - new Date(right.scheduledAt ?? 0).getTime());
   const days = [
-    "Fri 13",
-    "Sat 14",
-    "Sun 15",
-    "Mon 16",
-    "Tue 17",
-    "Wed 18",
-    "Thu 19",
+    ...Array.from({ length: 7 }, (_, offset) => {
+      const date = new Date();
+      date.setDate(date.getDate() + offset);
+      return date;
+    }),
   ];
   return (
     <>
       <PageHeading
-        eyebrow="SCHEDULED · SAMPLE DATA"
+        eyebrow="SCHEDULED · LIVE"
         title="Scheduled campaigns"
-        desc="Review the upcoming campaign schedule in this UI preview."
+        desc="Review and manage campaigns scheduled through the CRM API."
         action={
           <button className="btn primary" onClick={() => setModal("email")}>
             <Plus size={16} /> Create campaign
@@ -4366,20 +4530,14 @@ function ScheduledPreview({
       {items.length > 0 && (
         <div className="scheduled-banner">
           <div className="schedule-calendar">
-            <span>NOV</span>
-            <b>{items[0].date.split(" ")[1]?.replace(",", "")}</b>
-            <small>
-              {items[0].date.includes("14")
-                ? "SAT"
-                : items[0].date.includes("15")
-                  ? "SUN"
-                  : "WED"}
-            </small>
+                <span>{new Intl.DateTimeFormat("en-NG", { month: "short", timeZone: "Africa/Lagos" }).format(new Date(items[0].scheduledAt ?? Date.now())).toUpperCase()}</span>
+                <b>{new Intl.DateTimeFormat("en-NG", { day: "2-digit", timeZone: "Africa/Lagos" }).format(new Date(items[0].scheduledAt ?? Date.now()))}</b>
+                <small>{new Intl.DateTimeFormat("en-NG", { weekday: "short", timeZone: "Africa/Lagos" }).format(new Date(items[0].scheduledAt ?? Date.now())).toUpperCase()}</small>
           </div>
           <div className="scheduled-message">
             <Badge tone="Scheduled">NEXT SCHEDULED</Badge>
             <h2>{items[0].name}</h2>
-            <p>Illustrative scheduled campaign · {items[0].audience}.</p>
+            <p>Scheduled campaign · {items[0].audience}.</p>
             <div className="scheduled-details">
               <span>
                 {items[0].channel === "Email" ? (
@@ -4404,7 +4562,7 @@ function ScheduledPreview({
             Upcoming <span className="light-count">{items.length}</span>
           </h2>
           <p className="section-subtitle">
-            Sample schedule shown in West Africa Time (UTC+1).
+            Schedule times are shown in West Africa Time (UTC+1).
           </p>
         </div>
         <button
@@ -4417,13 +4575,12 @@ function ScheduledPreview({
       {calendar ? (
         <div className="schedule-calendar-grid">
           {days.map((day) => {
-            const dayNumber = day.split(" ")[1];
             const events = items.filter(
-              (item) => item.date === `Nov ${dayNumber}, 2026`,
+              (item) => item.scheduledAt && new Date(item.scheduledAt).toDateString() === day.toDateString(),
             );
             return (
-              <div className="schedule-day" key={day}>
-                <b>{day}</b>
+              <div className="schedule-day" key={day.toISOString()}>
+                <b>{new Intl.DateTimeFormat("en-NG", { weekday: "short", day: "numeric", month: "short" }).format(day)}</b>
                 {events.map((item) => (
                   <div className="schedule-event" key={item.name}>
                     <b>{item.name}</b>
@@ -4441,9 +4598,9 @@ function ScheduledPreview({
           {items.length === 0 ? (
             <div className="empty-state">
               <CalendarDays size={20} />
-              <b>No upcoming sample campaigns</b>
+              <b>No upcoming campaigns</b>
               <span>
-                Create a draft campaign to explore the scheduling flow.
+                Schedule an email campaign to see it here.
               </span>
               <button
                 className="btn secondary"
@@ -4475,15 +4632,17 @@ function ScheduledPreview({
                 <Badge tone={item.status}>{item.status}</Badge>
                 <button
                   className="btn secondary"
+                  disabled={busyId === (item.id ?? item.name)}
                   onClick={() =>
-                    togglePause(item.name, item.status !== "Paused")
+                    void runAction(item, (campaign) => togglePause(campaign, item.status !== "Paused"))
                   }
                 >
-                  {item.status === "Paused" ? "Resume" : "Pause"}
+                  {busyId === (item.id ?? item.name) ? "Saving..." : item.status === "Paused" ? "Resume" : "Pause"}
                 </button>
                 <button
                   className="btn secondary cancel-schedule"
-                  onClick={() => cancelScheduled(item.name)}
+                  disabled={busyId === (item.id ?? item.name)}
+                  onClick={() => void runAction(item, cancelScheduled)}
                 >
                   Cancel schedule
                 </button>
@@ -5786,6 +5945,7 @@ function ModalDialog({
   saveContact,
   initialContact,
   campaignNames,
+  campaignEditId,
   saveDraft,
   saveAudience,
   saveTemplate,
@@ -5806,6 +5966,7 @@ function ModalDialog({
   saveContact: (contact: Contact) => Promise<void>;
   initialContact: Contact | null;
   campaignNames: string[];
+  campaignEditId: string | null;
   saveDraft: (
     channel: "Email" | "SMS" | "WhatsApp",
     name: string,
@@ -5821,7 +5982,8 @@ function ModalDialog({
       excludedAudiences: string[];
       excludedContacts: string[];
     },
-  ) => void;
+    campaignId?: string | null,
+  ) => Promise<void>;
   saveAudience: (
     name: string,
     type: "Dynamic segment" | "Static group",
@@ -5899,6 +6061,7 @@ function ModalDialog({
     [attachmentNames, setAttachmentNames] = useState<string[]>(
       initialTemplate?.attachments ?? [],
     ),
+    [sendingTest, setSendingTest] = useState(false),
     [senderId, setSenderId] = useState(""),
     [objective, setObjective] = useState(initialTemplate?.objective ?? ""),
     [segmentType, setSegmentType] = useState<
@@ -5976,7 +6139,7 @@ function ModalDialog({
                 ? "Create an SMS campaign"
                 : kind === "whatsapp"
                   ? "Create a WhatsApp campaign"
-                  : "Create an email campaign";
+                  : campaignEditId ? "Edit email campaign" : "Create an email campaign";
   const pickFile = (candidate?: File) => {
     if (!candidate) return;
     if (!/\.(csv|xlsx|xls)$/i.test(candidate.name)) {
@@ -6155,6 +6318,14 @@ function ModalDialog({
         );
         return;
       }
+      if (kind === "email" && emailBlocks.some((block) => block.type === "image" && !/^https:\/\//i.test(block.content))) {
+        setValidation("Each image needs a publicly reachable HTTPS URL.");
+        return;
+      }
+      if (kind === "email" && attachmentNames.length) {
+        setValidation("Remove unused template attachments or add a public HTTPS link block for your document. Attachments aren’t sent by this integration.");
+        return;
+      }
       if (scheduleAt && new Date(scheduleAt).getTime() <= Date.now()) {
         setValidation(
           "Choose a future date and time to schedule this campaign.",
@@ -6165,7 +6336,9 @@ function ModalDialog({
         setValidation("Choose at least one audience before scheduling.");
         return;
       }
-      saveDraft(
+      setSaving(true);
+      try {
+      await saveDraft(
         kind === "sms" ? "SMS" : kind === "whatsapp" ? "WhatsApp" : "Email",
         campaignName.trim(),
         audiences.length
@@ -6182,7 +6355,13 @@ function ModalDialog({
           excludedAudiences,
           excludedContacts: excludedEmails,
         },
+        campaignEditId,
       );
+      } catch (error) {
+        setValidation(error instanceof Error ? error.message : "Could not save the campaign.");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     if (kind === "segment" || kind === "edit-audience") {
@@ -6953,27 +7132,10 @@ function ModalDialog({
                   {kind === "email" && (
                     <>
                       <label className="form-label">
-                        Images or attachments
-                        <input
-                          type="file"
-                          accept="image/*,.pdf,.doc,.docx"
-                          multiple
-                          onChange={(event) =>
-                            setAttachmentNames(
-                              Array.from(event.target.files ?? []).map(
-                                (file) => file.name,
-                              ),
-                            )
-                          }
-                        />
-                        <small>
-                          Files are listed in this local preview and are not
-                          uploaded.
-                        </small>
+                        Sharing files
+                        <small>Zoho Campaigns needs hosted content. Add an Image block with a public HTTPS image URL, or a Link block for a document. File attachments aren’t sent by this integration.</small>
                         {attachmentNames.length > 0 && (
-                          <span className="attachment-list">
-                            {attachmentNames.join(" · ")}
-                          </span>
+                          <span className="attachment-list">Unused template files: {attachmentNames.join(" · ")} <button type="button" className="text-link" onClick={() => setAttachmentNames([])}>Clear</button></span>
                         )}
                       </label>
                     </>
@@ -7096,26 +7258,19 @@ function ModalDialog({
                               />
                             )}
                             {block.type === "image" && (
-                              <label className="email-image-picker">
-                                <ImageIcon size={18} />
-                                <span>
-                                  {block.content ||
-                                    "Choose an image for this block"}
-                                </span>
+                              <label className="form-label">
+                                Public image URL
                                 <input
-                                  type="file"
-                                  accept="image/*"
+                                  type="url"
+                                  value={block.content}
+                                  placeholder="https://example.com/image.png"
                                   onChange={(event) =>
                                     updateEmailBlock(block.id, {
-                                      content:
-                                        event.target.files?.[0]?.name ?? "",
+                                      content: event.target.value,
                                     })
                                   }
                                 />
-                                <small>
-                                  Image files are listed in this preview and are
-                                  not uploaded.
-                                </small>
+                                <small>The image must be publicly reachable over HTTPS so Zoho Campaigns can fetch it.</small>
                               </label>
                             )}
                             {(block.type === "link" ||
@@ -7197,25 +7352,26 @@ function ModalDialog({
                         <button
                           type="button"
                           className="btn secondary"
-                          onClick={() => {
+                          disabled={sendingTest || saving}
+                          onClick={async () => {
                             if (!/^\S+@\S+\.\S+$/.test(testEmail)) {
                               setValidation(
-                                "Enter a valid address for the test preview.",
+                                "Enter a valid address for the test email.",
                               );
                               return;
                             }
                             setValidation("");
-                            recordAudit(
-                              "Prepared campaign test preview",
-                              `${campaignName} · ${testEmail}`,
-                              "Campaign preview",
-                            );
-                            notify(
-                              "Test preview prepared locally; no email was sent",
-                            );
+                            setSendingTest(true);
+                            try {
+                              await crmApi.sendCampaignTest(testEmail, subject, emailBlocks);
+                              recordAudit("Sent campaign test email", `${campaignName} · ${testEmail}`, "Campaign test email");
+                              notify(`Test email sent to ${testEmail}`);
+                            } catch (error) {
+                              setValidation(error instanceof Error ? error.message : "Could not send the test email.");
+                            } finally { setSendingTest(false); }
                           }}
                         >
-                          Prepare test
+                          {sendingTest ? "Sending test..." : "Send test"}
                         </button>
                       </div>
                     )}
@@ -7295,10 +7451,7 @@ function ModalDialog({
                         .toISOString()
                         .slice(0, 16)}
                     />
-                    <small>
-                      Scheduling is saved in this UI preview. A delivery
-                      provider and scheduler are required to send.
-                    </small>
+                    <small>Scheduled campaigns are delivered by Zoho Campaigns when this time is reached.</small>
                   </label>
                   {kind === "sms" ? (
                     <small className="count-hint">
