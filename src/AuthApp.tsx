@@ -260,15 +260,17 @@ export default function AuthApp() {
     }
   };
 
-  const signOut = async () => {
+  const signOut = async (): Promise<string | null> => {
     setError("");
     try {
-      await authClient.signOut();
+      const result = await authClient.signOut();
+      if (result.error) return result.error.message || "Could not sign out. Please try again.";
       setUser(null);
       setPassword("");
       setMode("sign-in");
+      return null;
     } catch {
-      setError("Could not sign out. Please try again.");
+      return "Could not sign out. Please try again.";
     }
   };
 

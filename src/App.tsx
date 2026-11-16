@@ -573,7 +573,7 @@ export function CRMApp({
   onSignOut,
 }: {
   account: { name: string; email: string };
-  onSignOut: () => Promise<void>;
+  onSignOut: () => Promise<string | null>;
 }) {
   const accountName = account.name || account.email;
   const accountInitials = accountName
@@ -612,6 +612,10 @@ export function CRMApp({
     [contactsPage, setContactsPage] = useState(0),
     [contactToDelete, setContactToDelete] = useState<Contact | null>(null),
     [confirmBulkDelete, setConfirmBulkDelete] = useState(false),
+    [contactDeletePhrase, setContactDeletePhrase] = useState(""),
+    [bulkDeletePhrase, setBulkDeletePhrase] = useState(""),
+    [deletingContact, setDeletingContact] = useState(false),
+    [deletingContacts, setDeletingContacts] = useState(false),
     [toast, setToast] = useState(""),
     [modal, setModal] = useState(() => normalizePath(window.location.pathname).toLowerCase() === "/contacts/new" ? "add" : ""),
     [pendingDuplicate, setPendingDuplicate] = useState<{
@@ -619,6 +623,7 @@ export function CRMApp({
       incoming: Contact;
       sourceId?: string;
     } | null>(null),
+    [duplicateAction, setDuplicateAction] = useState<"merge" | "separate" | null>(null),
     [mobile, setMobile] = useState(false),
     [sidebarCollapsed, setSidebarCollapsed] = useState(false),
     [period, setPeriod] = useState("Last 30 days");
@@ -984,6 +989,7 @@ export function CRMApp({
       notify("The matching contact has no CRM record ID. Refresh contacts and try again.");
       return;
     }
+    setDuplicateAction("merge");
     try {
       const saved = await crmApi.mergeContact(existing.id, pendingDuplicate.sourceId, toApiContact(merged));
       const persisted = contactFromApi(saved) as Contact;
@@ -996,6 +1002,8 @@ export function CRMApp({
     } catch (error) {
       notify(`Could not merge contact records: ${error instanceof Error ? error.message : "API error"}`);
       return;
+    } finally {
+      setDuplicateAction(null);
     }
     recordAudit(
       "Merged duplicate contact",
@@ -1013,6 +1021,7 @@ export function CRMApp({
       notify("This email address already belongs to the matching contact. Merge the records instead.");
       return;
     }
+    setDuplicateAction("separate");
     try {
       const saved = await crmApi.createContact(toApiContact(pendingDuplicate.incoming));
       const persisted = contactFromApi(saved) as Contact;
@@ -1022,6 +1031,8 @@ export function CRMApp({
     } catch (error) {
       notify(`Could not save separate contact: ${error instanceof Error ? error.message : "API error"}`);
       return;
+    } finally {
+      setDuplicateAction(null);
     }
     recordAudit(
       "Kept likely duplicate separate",
@@ -1036,6 +1047,7 @@ export function CRMApp({
       notify("This contact is not linked to an API record. Refresh the list and try again.");
       return;
     }
+    setDeletingContact(true);
     try {
       await crmApi.deleteContact(contact.id);
       setContacts((current) => current.filter((item) => item.id !== contact.id));
@@ -1043,6 +1055,7 @@ export function CRMApp({
       setSelected((current) => current.filter((email) => email !== contact.email));
       recordAudit("Deleted contact", `${contact.name} · ${contact.email}`, "Contact deleted");
       setContactToDelete(null);
+      setContactDeletePhrase("");
       if (activeContact?.id === contact.id) {
         setActiveContact(null);
         go("Contacts");
@@ -1050,6 +1063,8 @@ export function CRMApp({
       notify(`${contact.name} deleted`);
     } catch (error) {
       notify(`Could not delete contact: ${error instanceof Error ? error.message : "API error"}`);
+    } finally {
+      setDeletingContact(false);
     }
   };
   const removeSelectedContacts = async () => {
@@ -1063,6 +1078,7 @@ export function CRMApp({
       setConfirmBulkDelete(false);
       return;
     }
+    setDeletingContacts(true);
     try {
       const result = await crmApi.deleteContacts(targets.map((contact) => contact.id!));
       const deletedIds = new Set(result.ids);
@@ -1070,10 +1086,13 @@ export function CRMApp({
       setAudienceReloadKey((key) => key + 1);
       setSelected([]);
       setConfirmBulkDelete(false);
+      setBulkDeletePhrase("");
       recordAudit("Deleted contacts", `${result.deleted} contact records`, "Contacts deleted");
       notify(`${result.deleted} contact${result.deleted === 1 ? "" : "s"} deleted`);
     } catch (error) {
       notify(`Could not delete selected contacts: ${error instanceof Error ? error.message : "API error"}`);
+    } finally {
+      setDeletingContacts(false);
     }
   };
   const addCampaignDraft = (
@@ -1311,7 +1330,7 @@ export function CRMApp({
       await crmApi.removeAudienceMember(id, contactId);
     } catch (error) {
       notify(`Could not remove audience member: ${error instanceof Error ? error.message : "API error"}`);
-      return;
+      throw error;
     }
     try {
       await refreshAudience(id);
@@ -1331,6 +1350,7 @@ export function CRMApp({
       notify(`${activeAudience.name} deleted`);
     } catch (error) {
       notify(`Could not delete audience: ${error instanceof Error ? error.message : "API error"}`);
+      throw error;
     }
   };
   const createCategory = async (name: string): Promise<string | null> => {
@@ -1546,7 +1566,7 @@ export function CRMApp({
       `${rows.length} contact${rows.length === 1 ? "" : "s"} exported to Excel`,
     );
   };
-  const importCsv = (file: File) => {
+  const importCsv = (file: File): Promise<void> => {
     const isExcel = /\.xlsx?$/i.test(file.name);
     const content = isExcel
       ? file.arrayBuffer().then(async (data) => {
@@ -1556,7 +1576,7 @@ export function CRMApp({
           return firstSheet ? XLSX.utils.sheet_to_csv(firstSheet) : "";
         })
       : file.text();
-    void content
+    return content
       .then(async (raw) => {
         const parseCsv = (input: string) => {
           const rows: string[][] = [];
@@ -1587,8 +1607,7 @@ export function CRMApp({
         };
         const [headerRow, ...lines] = parseCsv(raw.replace(/^\uFEFF/, ""));
         if (!headerRow) {
-          notify("The selected CSV is empty");
-          return;
+          throw new Error("The selected CSV is empty.");
         }
         const headers = headerRow.map((h) =>
           h.toLowerCase().replaceAll(/[\s-]+/g, "_"),
@@ -1597,8 +1616,7 @@ export function CRMApp({
           headers.findIndex((h) => keys.includes(h));
         const emailAt = index("email", "email_address");
         if (emailAt < 0) {
-          notify("CSV needs an Email or Email address column");
-          return;
+          throw new Error("The file needs an Email or Email address column.");
         }
         const nameAt = index("name", "full_name"),
           firstAt = index("first_name", "firstname"),
@@ -1764,7 +1782,11 @@ export function CRMApp({
           `${persisted.length} imported · ${totalDuplicates} duplicates, ${invalidCount} invalid emails, ${invalidPhoneCount} invalid phones skipped`,
         );
       })
-      .catch((error: unknown) => notify(`Could not import contacts: ${error instanceof Error ? error.message : "check the file and API connection"}`));
+      .catch((error: unknown) => {
+        throw error instanceof Error
+          ? error
+          : new Error("Could not import contacts. Check the file and API connection.");
+      });
   };
   const toggle = (email: string) =>
     setSelected((v) =>
@@ -2054,7 +2076,7 @@ export function CRMApp({
                     >
                       Export selected
                     </button>
-                    <button className="bulk-delete-action" onClick={() => setConfirmBulkDelete(true)}>
+                    <button className="bulk-delete-action" onClick={() => { setBulkDeletePhrase(""); setConfirmBulkDelete(true); }}>
                       Delete selected
                     </button>
                     <button onClick={() => setSelected([])}>Clear</button>
@@ -2222,7 +2244,7 @@ export function CRMApp({
                 window.history.pushState({}, "", `/contacts/${encodeURIComponent(key)}/edit`);
                 setModal("edit-contact");
               }}
-              onDelete={() => setContactToDelete(activeContact)}
+              onDelete={() => { setContactDeletePhrase(""); setContactToDelete(activeContact); }}
               onStartCampaign={() =>
                 openCampaignForAudience(activeContact.name)
               }
@@ -2461,6 +2483,7 @@ export function CRMApp({
             <div className="modal-foot">
               <button
                 className="btn secondary"
+                disabled={duplicateAction !== null}
                 onClick={() => setPendingDuplicate(null)}
               >
                 Cancel
@@ -2469,13 +2492,14 @@ export function CRMApp({
                 pendingDuplicate.incoming.email.toLowerCase() && (
                 <button
                   className="btn secondary"
-                  onClick={keepDuplicateSeparate}
+                  disabled={duplicateAction !== null}
+                  onClick={() => void keepDuplicateSeparate()}
                 >
-                  Keep both
+                  {duplicateAction === "separate" ? "Saving..." : "Keep both"}
                 </button>
               )}
-              <button className="btn primary" onClick={mergeDuplicateContact}>
-                Merge safely
+              <button className="btn primary" disabled={duplicateAction !== null} onClick={() => void mergeDuplicateContact()}>
+                {duplicateAction === "merge" ? "Merging..." : "Merge safely"}
               </button>
             </div>
           </section>
@@ -2487,9 +2511,10 @@ export function CRMApp({
             <div className="danger-icon"><Trash2 size={18} /></div>
             <h2 id="delete-contact-title">Delete {contactToDelete.name}?</h2>
             <p>This permanently removes the contact record from your CRM. Any audience memberships for this contact will also be removed.</p>
+            <DeletePhraseInput value={contactDeletePhrase} onChange={setContactDeletePhrase} disabled={deletingContact} />
             <div className="category-confirm-actions">
-              <button className="btn secondary" onClick={() => setContactToDelete(null)}>Cancel</button>
-              <button className="btn danger" onClick={() => void removeContact(contactToDelete)}>Delete contact</button>
+              <button className="btn secondary" disabled={deletingContact} onClick={() => { setContactToDelete(null); setContactDeletePhrase(""); }}>Cancel</button>
+              <button className="btn danger" disabled={deletingContact || !deletePhraseMatches(contactDeletePhrase)} onClick={() => void removeContact(contactToDelete)}>{deletingContact ? "Deleting..." : "Delete contact"}</button>
             </div>
           </div>
         </div>
@@ -2500,9 +2525,10 @@ export function CRMApp({
             <div className="danger-icon"><Trash2 size={18} /></div>
             <h2 id="delete-selected-title">Delete {selectedVisible.length} selected contacts?</h2>
             <p>This permanently removes these CRM records and removes them from saved audiences.</p>
+            <DeletePhraseInput value={bulkDeletePhrase} onChange={setBulkDeletePhrase} disabled={deletingContacts} />
             <div className="category-confirm-actions">
-              <button className="btn secondary" onClick={() => setConfirmBulkDelete(false)}>Cancel</button>
-              <button className="btn danger" onClick={() => void removeSelectedContacts()}>Delete contacts</button>
+              <button className="btn secondary" disabled={deletingContacts} onClick={() => { setConfirmBulkDelete(false); setBulkDeletePhrase(""); }}>Cancel</button>
+              <button className="btn danger" disabled={deletingContacts || !deletePhraseMatches(bulkDeletePhrase)} onClick={() => void removeSelectedContacts()}>{deletingContacts ? "Deleting..." : "Delete contacts"}</button>
             </div>
           </div>
         </div>
@@ -2516,6 +2542,28 @@ export function CRMApp({
     </div>
   );
 }
+const deletePhraseMatches = (value: string) => value.trim().toLocaleUpperCase() === "DELETE";
+
+function DeletePhraseInput({ value, onChange, disabled = false }: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="typed-delete-field">
+      <span>Type <b>DELETE</b> to confirm</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="DELETE"
+        autoComplete="off"
+        aria-label="Type DELETE to confirm deletion"
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
 function CategoryManager({
   categories,
   contacts,
@@ -2541,6 +2589,7 @@ function CategoryManager({
   const [editing, setEditing] = useState("");
   const [editValue, setEditValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState("");
+  const [deletePhrase, setDeletePhrase] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const isDuplicate = (candidate: string, except = "") =>
@@ -2588,12 +2637,13 @@ function CategoryManager({
     }
   };
   const confirmDelete = async () => {
-    if (!deleteTarget || busy) return;
+    if (!deleteTarget || busy || !deletePhraseMatches(deletePhrase)) return;
     setBusy(true);
     try {
       const failure = await onDelete(deleteTarget);
       if (failure) return setError(failure);
       setDeleteTarget("");
+      setDeletePhrase("");
       setError("");
     } finally {
       setBusy(false);
@@ -2716,9 +2766,10 @@ function CategoryManager({
                     </button>
                     <button
                       className="btn danger-quiet"
-                      disabled={categories.length <= 1}
+                      disabled={categories.length <= 1 || busy}
                       onClick={() => {
                         setDeleteTarget(name);
+                        setDeletePhrase("");
                         setError("");
                       }}
                     >
@@ -2752,17 +2803,18 @@ function CategoryManager({
               {categories.find((categoryName) => categoryName !== deleteTarget)}
               . Saved audience rules that use this category will be updated too.
             </p>
+            <DeletePhraseInput value={deletePhrase} onChange={setDeletePhrase} disabled={busy} />
             <div className="category-confirm-actions">
               <button
                 className="btn secondary"
                 disabled={busy}
-                onClick={() => setDeleteTarget("")}
+                onClick={() => { setDeleteTarget(""); setDeletePhrase(""); }}
               >
                 Keep category
               </button>
               <button
                 className="btn danger"
-                disabled={busy}
+                disabled={busy || !deletePhraseMatches(deletePhrase)}
                 onClick={() => void confirmDelete()}
               >
                 {busy ? "Deleting..." : "Delete category"}
@@ -3759,8 +3811,43 @@ function AudienceProfile({ audience, contacts, onBack, openCampaign, onEdit, onD
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [audienceDeletePhrase, setAudienceDeletePhrase] = useState("");
+  const [audienceDeleteBusy, setAudienceDeleteBusy] = useState(false);
+  const [audienceDeleteError, setAudienceDeleteError] = useState("");
+  const [memberToRemove, setMemberToRemove] = useState<Contact | null>(null);
+  const [memberDeletePhrase, setMemberDeletePhrase] = useState("");
+  const [memberDeleteBusy, setMemberDeleteBusy] = useState(false);
+  const [memberDeleteError, setMemberDeleteError] = useState("");
   const memberIds = new Set(audience.members.map((member) => member.id).filter(Boolean));
   const availableContacts = contacts.filter((contact) => contact.id && !memberIds.has(contact.id));
+  const confirmAudienceRemoval = async () => {
+    if (!deletePhraseMatches(audienceDeletePhrase) || audienceDeleteBusy) return;
+    setAudienceDeleteBusy(true);
+    setAudienceDeleteError("");
+    try {
+      await onDelete();
+      setConfirmDelete(false);
+      setAudienceDeletePhrase("");
+    } catch (error) {
+      setAudienceDeleteError(error instanceof Error ? error.message : "Could not delete audience");
+    } finally {
+      setAudienceDeleteBusy(false);
+    }
+  };
+  const confirmMemberRemoval = async () => {
+    if (!memberToRemove?.id || !deletePhraseMatches(memberDeletePhrase) || memberDeleteBusy) return;
+    setMemberDeleteBusy(true);
+    setMemberDeleteError("");
+    try {
+      await onRemoveMember(memberToRemove.id);
+      setMemberToRemove(null);
+      setMemberDeletePhrase("");
+    } catch (error) {
+      setMemberDeleteError(error instanceof Error ? error.message : "Could not remove audience member");
+    } finally {
+      setMemberDeleteBusy(false);
+    }
+  };
   const saveMembers = async () => {
     if (!selectedIds.length) return;
     setBusy(true);
@@ -3779,7 +3866,7 @@ function AudienceProfile({ audience, contacts, onBack, openCampaign, onEdit, onD
       <PageHeading eyebrow="AUDIENCE DETAILS" title={audience.name} desc="Review this audience’s definition and membership before using it." action={<>
         <button className="btn secondary" onClick={onBack}><ChevronLeft size={16} /> Back to audiences</button>
         <button className="btn secondary" onClick={onEdit}><SlidersHorizontal size={15} /> Edit audience</button>
-        <button className="btn danger-quiet" onClick={() => setConfirmDelete(true)}><Trash2 size={15} /> Delete</button>
+        <button className="btn danger-quiet" onClick={() => { setAudienceDeletePhrase(""); setAudienceDeleteError(""); setConfirmDelete(true); }}><Trash2 size={15} /> Delete</button>
         <button className="btn primary" onClick={() => openCampaign(audience.name)}><Send size={15} /> Use in campaign</button>
       </>} />
       <section className="audience-profile-hero">
@@ -3796,10 +3883,11 @@ function AudienceProfile({ audience, contacts, onBack, openCampaign, onEdit, onD
             {availableContacts.length ? availableContacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={Boolean(contact.id && selectedIds.includes(contact.id))} onChange={() => contact.id && setSelectedIds((current) => current.includes(contact.id!) ? current.filter((id) => id !== contact.id) : [...current, contact.id!])} /><span><b>{contact.name}</b><small>{contact.email}</small></span></label>) : <p>{contacts.length ? "All available contacts are already in this group." : "Add contacts to the CRM before building audience membership."}</p>}
             <div className="audience-add-actions"><button className="btn secondary" onClick={() => { setAddingMembers(false); setSelectedIds([]); }}>Cancel</button><button className="btn primary" disabled={!selectedIds.length || busy} onClick={() => void saveMembers()}>{busy ? "Saving…" : `Add ${selectedIds.length || "selected"}`}</button></div>
           </div>}
-          {audience.members.length ? <div className="audience-member-list">{audience.members.map((member) => <div className="audience-member" key={member.id ?? member.email}><div className={`avatar ${member.color}`}>{member.initials}</div><span><b>{member.name}</b><small>{member.email}</small></span><Badge>{member.category}</Badge>{audience.type === "Static group" && member.id && <button className="icon-btn" aria-label={`Remove ${member.name} from audience`} disabled={busy} onClick={() => void onRemoveMember(member.id!)}><X size={14} /></button>}</div>)}</div> : <div className="profile-empty-activity audience-empty-members"><div><Users size={18} /></div><b>No contacts in this audience</b><p>{audience.type === "Dynamic segment" ? "No current contacts match these rules. Edit the audience to adjust its criteria." : "Add contacts to this static group to build its membership."}</p></div>}
+          {audience.members.length ? <div className="audience-member-list">{audience.members.map((member) => <div className="audience-member" key={member.id ?? member.email}><div className={`avatar ${member.color}`}>{member.initials}</div><span><b>{member.name}</b><small>{member.email}</small></span><Badge>{member.category}</Badge>{audience.type === "Static group" && member.id && <button className="icon-btn" aria-label={`Remove ${member.name} from audience`} disabled={busy || memberDeleteBusy} onClick={() => { setMemberToRemove(member); setMemberDeletePhrase(""); setMemberDeleteError(""); }}><X size={14} /></button>}</div>)}</div> : <div className="profile-empty-activity audience-empty-members"><div><Users size={18} /></div><b>No contacts in this audience</b><p>{audience.type === "Dynamic segment" ? "No current contacts match these rules. Edit the audience to adjust its criteria." : "Add contacts to this static group to build its membership."}</p></div>}
         </section>
       </div>
-      {confirmDelete && <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="delete-audience-title"><div className="category-confirm-card"><div className="danger-icon"><Trash2 size={17} /></div><h2 id="delete-audience-title">Delete “{audience.name}”?</h2><p>This permanently deletes the audience and its saved membership. Contact records remain in your CRM.</p><div className="category-confirm-actions"><button className="btn secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep audience</button><button className="btn danger" disabled={busy} onClick={() => { setBusy(true); void onDelete().finally(() => setBusy(false)); }}>Delete audience</button></div></div></div>}
+      {confirmDelete && <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="delete-audience-title"><div className="category-confirm-card"><div className="danger-icon"><Trash2 size={17} /></div><h2 id="delete-audience-title">Delete “{audience.name}”?</h2><p>This permanently deletes the audience and its saved membership. Contact records remain in your CRM.</p><DeletePhraseInput value={audienceDeletePhrase} onChange={setAudienceDeletePhrase} disabled={audienceDeleteBusy} />{audienceDeleteError && <p className="validation-message" role="alert">{audienceDeleteError}</p>}<div className="category-confirm-actions"><button className="btn secondary" disabled={audienceDeleteBusy} onClick={() => { setConfirmDelete(false); setAudienceDeletePhrase(""); }}>Keep audience</button><button className="btn danger" disabled={audienceDeleteBusy || !deletePhraseMatches(audienceDeletePhrase)} onClick={() => void confirmAudienceRemoval()}>{audienceDeleteBusy ? "Deleting..." : "Delete audience"}</button></div></div></div>}
+      {memberToRemove && <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="remove-audience-member-title"><div className="category-confirm-card"><div className="danger-icon"><X size={17} /></div><h2 id="remove-audience-member-title">Remove {memberToRemove.name}?</h2><p>This removes the contact from this static audience. The contact record will remain in your CRM.</p><DeletePhraseInput value={memberDeletePhrase} onChange={setMemberDeletePhrase} disabled={memberDeleteBusy} />{memberDeleteError && <p className="validation-message" role="alert">{memberDeleteError}</p>}<div className="category-confirm-actions"><button className="btn secondary" disabled={memberDeleteBusy} onClick={() => { setMemberToRemove(null); setMemberDeletePhrase(""); }}>Cancel</button><button className="btn danger" disabled={memberDeleteBusy || !deletePhraseMatches(memberDeletePhrase)} onClick={() => void confirmMemberRemoval()}>{memberDeleteBusy ? "Removing..." : "Remove contact"}</button></div></div></div>}
     </div>
   );
 }
@@ -4582,7 +4670,7 @@ function Settings({
   recordAudit,
 }: {
   account: { name: string; email: string };
-  onSignOut: () => Promise<void>;
+  onSignOut: () => Promise<string | null>;
   notify: (s: string) => void;
   recordAudit: (activity: string, details: string, eventType: string) => void;
 }) {
@@ -4596,10 +4684,12 @@ function Settings({
   const [tab, setTab] = useState("General");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
   const [workspaceName, setWorkspaceName] = useState("Cephas People");
   const [timezone, setTimezone] = useState("Africa/Lagos");
   const [senderName, setSenderName] = useState("Cephas People");
   const [users, setUsers] = useState<TeamUser[]>(loadTeamUsers);
+  const [teamStorageError, setTeamStorageError] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamRole>("Marketing Staff");
@@ -4618,8 +4708,9 @@ function Settings({
   useEffect(() => {
     try {
       localStorage.setItem("cephas.team-users", JSON.stringify(users));
+      setTeamStorageError("");
     } catch {
-      // Keep the access editor usable when browser storage is unavailable.
+      setTeamStorageError("Could not save team changes in this browser. Changes may be lost when you leave this session.");
     }
   }, [users]);
   const changeRole = (email: string, role: TeamRole) => {
@@ -4637,6 +4728,7 @@ function Settings({
         `${user.name} · ${role}`,
         "Team access updated",
       );
+    if (user) notify(`Role updated for ${user.name} in this browser preview.`);
   };
   const togglePermission = (email: string, permission: PermissionId) => {
     const user = users.find((item) => item.email === email);
@@ -4662,6 +4754,7 @@ function Settings({
       `${label} · ${user.email}`,
       "Team permission updated",
     );
+    notify(`${label} ${enabled ? "removed from" : "granted to"} ${user.name} in this browser preview.`);
   };
   const resetPermissions = (email: string) => {
     const user = users.find((item) => item.email === email);
@@ -4678,6 +4771,7 @@ function Settings({
       `${user.email} · ${user.role} defaults`,
       "Team permission updated",
     );
+    notify(`Permissions reset to ${user.role} defaults in this browser preview.`);
   };
   return (
     <>
@@ -4736,7 +4830,7 @@ function Settings({
                   <b>{account.name || account.email}</b>
                   <small>{account.email}</small>
                 </div>
-                <button className="btn secondary" onClick={() => setConfirmSignOut(true)}>
+                <button className="btn secondary" onClick={() => { setSignOutError(""); setConfirmSignOut(true); }}>
                   <LogOut size={15} /> Sign out
                 </button>
               </div>
@@ -4802,6 +4896,7 @@ function Settings({
                   </button>
                 )}
               </div>
+              {teamStorageError && <p className="validation-message" role="alert">{teamStorageError}</p>}
               <div className="team-member-list">
                 {users.map((user) => {
                   const isRoot = user.role === "Superadmin";
@@ -4963,6 +5058,7 @@ function Settings({
                       `${email} ? ${inviteRole}`,
                       "Team access updated",
                     );
+                    notify(`${name} added to this browser preview. No invitation email was sent.`);
                     setInviteEmail("");
                     setInviteRole("Marketing Staff");
                     setInviteOpen(false);
@@ -5283,18 +5379,25 @@ function Settings({
             <div className="danger-icon"><LogOut size={18} /></div>
             <h2 id="signout-title">Sign out of Cephas CRM?</h2>
             <p>You’ll need to sign in again to access the {account.name || "organization"} workspace.</p>
+            {signOutError && <p className="validation-message" role="alert">{signOutError}</p>}
             <div className="category-confirm-actions">
-              <button className="btn secondary" disabled={signingOut} onClick={() => setConfirmSignOut(false)}>Cancel</button>
+              <button className="btn secondary" disabled={signingOut} onClick={() => { setConfirmSignOut(false); setSignOutError(""); }}>Cancel</button>
               <button
                 className="btn danger"
                 disabled={signingOut}
                 onClick={async () => {
                   setSigningOut(true);
                   try {
-                    await onSignOut();
+                    const error = await onSignOut();
+                    if (error) {
+                      setSignOutError(error);
+                      return;
+                    }
+                    setConfirmSignOut(false);
+                  } catch (error) {
+                    setSignOutError(error instanceof Error ? error.message : "Could not sign out. Please try again.");
                   } finally {
                     setSigningOut(false);
-                    setConfirmSignOut(false);
                   }
                 }}
               >
@@ -5700,7 +5803,7 @@ function ModalDialog({
   categories: string[];
   close: () => void;
   save: (contact: Contact) => void;
-  saveContact: (contact: Contact) => void;
+  saveContact: (contact: Contact) => Promise<void>;
   initialContact: Contact | null;
   campaignNames: string[];
   saveDraft: (
@@ -5726,12 +5829,12 @@ function ModalDialog({
     members: Contact[],
     audienceId?: string,
     description?: string,
-  ) => void;
+  ) => Promise<void>;
   initialAudienceRecord: AudienceRecord | null;
   initialMembers: Contact[];
   contacts: Contact[];
   saveTemplate: (template: TemplateDraft) => void;
-  importContacts: (file: File) => void;
+  importContacts: (file: File) => Promise<void>;
   recordAudit: (activity: string, details: string, eventType: string) => void;
   notify: (s: string) => void;
   initialAudience: string;
@@ -5807,7 +5910,8 @@ function ModalDialog({
     [rules, setRules] = useState<FilterRule[]>(initialAudienceRecord?.rules.length ? initialAudienceRecord.rules : [
       { field: "Category", operator: "is", value: "" },
     ]),
-    [validation, setValidation] = useState("");
+    [validation, setValidation] = useState(""),
+    [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!initialAudienceRecord) return;
     setCampaignName(initialAudienceRecord.name);
@@ -5929,7 +6033,8 @@ function ModalDialog({
     commitEmailBlocks(next);
     setDraggedBlockId(null);
   };
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return;
     if (kind === "add" || kind === "edit-contact") {
       const name = `${firstName.trim()} ${lastName.trim()}`.trim();
       if (
@@ -5945,7 +6050,9 @@ function ModalDialog({
         setValidation("Enter a valid phone number with 7 to 15 digits.");
         return;
       }
-      saveContact({
+      setSaving(true);
+      try {
+        await saveContact({
         name,
         email: email.trim(),
         alternateEmails: initialContact?.alternateEmails ?? [],
@@ -5979,12 +6086,24 @@ function ModalDialog({
           .join(""),
         color: "blue",
         date: "Nov 13, 2026",
-      });
+        });
+      } catch (error) {
+        setValidation(error instanceof Error ? error.message : "Could not save this contact.");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     if (kind === "import") {
       if (file) {
-        importContacts(file);
+        setSaving(true);
+        try {
+          await importContacts(file);
+        } catch (error) {
+          setValidation(error instanceof Error ? error.message : "Could not import this file.");
+        } finally {
+          setSaving(false);
+        }
         return;
       }
       setValidation("Select a CSV or Excel file to continue.");
@@ -6090,14 +6209,21 @@ function ModalDialog({
         setValidation("Choose a value for each dynamic segment condition.");
         return;
       }
-      saveAudience(
-        campaignName.trim(),
-        segmentType,
-        segmentType === "Dynamic segment" ? rules : [],
-        initialMembers,
-        initialAudienceRecord?.id,
-        audienceDescription,
-      );
+      setSaving(true);
+      try {
+        await saveAudience(
+          campaignName.trim(),
+          segmentType,
+          segmentType === "Dynamic segment" ? rules : [],
+          initialMembers,
+          initialAudienceRecord?.id,
+          audienceDescription,
+        );
+      } catch (error) {
+        setValidation(error instanceof Error ? error.message : "Could not save this audience.");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     if (kind === "template") {
@@ -6127,7 +6253,7 @@ function ModalDialog({
     notify("Template setup preview closed; this template is not stored");
   };
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) close(); }}>
       <div
         className="modal"
         role="dialog"
@@ -6155,6 +6281,7 @@ function ModalDialog({
           <button
             className="icon-btn"
             aria-label="Close dialog"
+            disabled={saving}
             onClick={close}
           >
             <X size={18} />
@@ -7205,11 +7332,14 @@ function ModalDialog({
         )}
         {validation && <p className="validation-message">{validation}</p>}
         <div className="modal-foot">
-          <button className="btn secondary" onClick={close}>
+          <button className="btn secondary" disabled={saving} onClick={close}>
             Cancel
           </button>
-          <button className="btn primary" onClick={submit}>
-            {kind === "add"
+          <button className="btn primary" disabled={saving} onClick={() => void submit()}>
+            {saving && <LoaderCircle size={15} className="auth-spinner" />}
+            {saving
+              ? kind === "import" ? "Importing contacts..." : kind === "segment" || kind === "edit-audience" ? "Saving audience..." : "Saving contact..."
+              : kind === "add"
               ? "Add contact"
               : kind === "import"
                 ? "Import contacts"
