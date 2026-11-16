@@ -1221,6 +1221,7 @@ export function CRMApp({
     rules: FilterRule[],
     members: Contact[],
     audienceId?: string,
+    description?: string,
   ) => {
     const resolvedMembers = type === "Static group" ? members : [];
     const contactIds = type === "Static group" ? resolvedMembers.map((contact) => contact.id).filter((id): id is string => Boolean(id)) : [];
@@ -1233,26 +1234,25 @@ export function CRMApp({
       const payload = {
         name,
         type: type === "Dynamic segment" ? "dynamic" as const : "static" as const,
-        description: type === "Dynamic segment" ? `${rules.length} saved conditions` : `${resolvedMembers.length} selected contacts`,
+        description: description?.trim() || (type === "Dynamic segment" ? `${rules.length} saved conditions` : `${resolvedMembers.length} selected contacts`),
         rules: type === "Dynamic segment" ? rules : [],
         ...(!audienceId && type === "Static group" ? { contactIds } : {}),
       };
       savedAudience = audienceId
         ? await crmApi.updateAudience(audienceId, payload)
         : await crmApi.createAudience(payload);
-      const detail = await crmApi.getAudience(savedAudience.id);
-      const detailMembers = detail.members.map((member) => contactFromApi(member.contact) as Contact);
-      const record = audienceRecordFromApi(detail, detailMembers);
-      setActiveAudience(record);
-      setAudienceDrafts((current) => audienceId
-        ? current.map((audience) => audience.id === audienceId
-          ? { ...audience, id: record.id, name: record.name, type: record.type, description: record.description, rules: record.rules, members: detailMembers, memberCount: Number(record.count), updatedAt: detail.updatedAt }
-          : audience)
-        : [{ id: record.id, name: record.name, type: record.type, description: record.description, rules: record.rules, members: detailMembers, memberCount: Number(record.count), updatedAt: detail.updatedAt }, ...current]);
     } catch (error) {
       notify(`Could not ${audienceId ? "update" : "save"} audience: ${error instanceof Error ? error.message : "API error"}`);
       return;
     }
+    const savedMembers = type === "Static group" ? resolvedMembers : [];
+    const record = audienceRecordFromApi(savedAudience, savedMembers);
+    setActiveAudience(record);
+      setAudienceDrafts((current) => audienceId
+        ? current.map((audience) => audience.id === audienceId
+          ? { ...audience, id: record.id, name: record.name, type: record.type, description: record.description, rules: record.rules, members: savedMembers, memberCount: Number(record.count), updatedAt: savedAudience.updatedAt }
+          : audience)
+        : [{ id: record.id, name: record.name, type: record.type, description: record.description, rules: record.rules, members: savedMembers, memberCount: Number(record.count), updatedAt: savedAudience.updatedAt }, ...current]);
     recordAudit(
       audienceId ? "Updated audience" : "Created audience",
       `${name} · ${type} · ${savedAudience.memberCount ?? resolvedMembers.length} contacts · ${rules.length} conditions`,
@@ -1292,23 +1292,34 @@ export function CRMApp({
       : audience));
   };
   const addMembersToAudience = async (id: string, contactIds: string[]) => {
+    let added = 0;
     try {
       const result = await crmApi.addAudienceMembers(id, contactIds);
-      await refreshAudience(id);
-      notify(`${result.added} contact${result.added === 1 ? "" : "s"} added to the audience`);
+      added = result.added;
     } catch (error) {
       notify(`Could not add audience members: ${error instanceof Error ? error.message : "API error"}`);
       throw error;
     }
+    try {
+      await refreshAudience(id);
+    } catch {
+      setAudienceReloadKey((key) => key + 1);
+    }
+    notify(`${added} contact${added === 1 ? "" : "s"} added to the audience`);
   };
   const removeAudienceMember = async (id: string, contactId: string) => {
     try {
       await crmApi.removeAudienceMember(id, contactId);
-      await refreshAudience(id);
-      notify("Contact removed from the audience");
     } catch (error) {
       notify(`Could not remove audience member: ${error instanceof Error ? error.message : "API error"}`);
+      return;
     }
+    try {
+      await refreshAudience(id);
+    } catch {
+      setAudienceReloadKey((key) => key + 1);
+    }
+    notify("Contact removed from the audience");
   };
   const deleteActiveAudience = async () => {
     if (!activeAudience) return;
@@ -5562,6 +5573,7 @@ function ModalDialog({
     rules: FilterRule[],
     members: Contact[],
     audienceId?: string,
+    description?: string,
   ) => void;
   initialAudienceRecord: AudienceRecord | null;
   initialMembers: Contact[];
@@ -5610,6 +5622,7 @@ function ModalDialog({
     [campaignName, setCampaignName] = useState(
       initialAudienceRecord?.name ?? (initialTemplate ? `${initialTemplate.name} campaign` : ""),
     ),
+    [audienceDescription, setAudienceDescription] = useState(initialAudienceRecord?.description ?? ""),
     [subject, setSubject] = useState(initialTemplate?.subject ?? ""),
     [audiences, setAudiences] = useState<string[]>(
       initialAudience
@@ -5646,6 +5659,7 @@ function ModalDialog({
   useEffect(() => {
     if (!initialAudienceRecord) return;
     setCampaignName(initialAudienceRecord.name);
+    setAudienceDescription(initialAudienceRecord.description);
     setSegmentType(initialAudienceRecord.type);
     setRules(initialAudienceRecord.rules.length ? initialAudienceRecord.rules : [{ field: "Category", operator: "is", value: "" }]);
     setValidation("");
@@ -5930,6 +5944,7 @@ function ModalDialog({
         segmentType === "Dynamic segment" ? rules : [],
         initialMembers,
         initialAudienceRecord?.id,
+        audienceDescription,
       );
       return;
     }
@@ -6202,6 +6217,11 @@ function ModalDialog({
                 }
               />
             </label>
+            {(kind === "segment" || kind === "edit-audience") && <label className="form-label">
+              Description
+              <textarea rows={2} maxLength={500} value={audienceDescription} onChange={(event) => setAudienceDescription(event.target.value)} placeholder="Describe who belongs in this audience." />
+              <small className="count-hint">{audienceDescription.length}/500</small>
+            </label>}
             {kind === "template" && (
               <>
                 <label className="form-label">
