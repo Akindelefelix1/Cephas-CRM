@@ -1559,15 +1559,6 @@ export function CRMApp({
               <b>{accountName}</b>
               <small>{account.email}</small>
             </div>
-            <button
-              className="profile-signout"
-              type="button"
-              aria-label="Sign out"
-              title="Sign out"
-              onClick={() => void onSignOut()}
-            >
-              <LogOut size={16} />
-            </button>
           </div>
         </div>
       </aside>
@@ -1622,14 +1613,6 @@ export function CRMApp({
               <b>{accountName}</b>
               <small>{account.email}</small>
             </div>
-            <button
-              className="account-logout"
-              type="button"
-              onClick={() => void onSignOut()}
-            >
-              <LogOut size={15} />
-              <span>Log out</span>
-            </button>
           </div>
         </header>
         <div className="content">
@@ -2042,7 +2025,12 @@ export function CRMApp({
             />
           )}
           {page === "Settings" && (
-            <Settings notify={notify} recordAudit={recordAudit} />
+            <Settings
+              account={account}
+              onSignOut={onSignOut}
+              notify={notify}
+              recordAudit={recordAudit}
+            />
           )}
           {page === "Leads" && <ComingSoon />}
           <footer className="footer">
@@ -4341,9 +4329,13 @@ function AuditLogPreview({
   );
 }
 function Settings({
+  account,
+  onSignOut,
   notify,
   recordAudit,
 }: {
+  account: { name: string; email: string };
+  onSignOut: () => Promise<void>;
   notify: (s: string) => void;
   recordAudit: (activity: string, details: string, eventType: string) => void;
 }) {
@@ -4355,6 +4347,8 @@ function Settings({
     "Integrations",
   ];
   const [tab, setTab] = useState("General");
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("Cephas People");
   const [timezone, setTimezone] = useState("Africa/Lagos");
   const [senderName, setSenderName] = useState("Cephas People");
@@ -4483,8 +4477,24 @@ function Settings({
           </div>
           {tab === "General" && (
             <>
+              <div className="settings-section-heading organization-profile-heading">
+                <h3>Organization profile</h3>
+                <p>Workspace details and the account currently managing this organization.</p>
+              </div>
+              <div className="organization-account-card">
+                <div className="avatar user-avatar">
+                  {account.name.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("")}
+                </div>
+                <div className="organization-account-details">
+                  <b>{account.name || account.email}</b>
+                  <small>{account.email}</small>
+                </div>
+                <button className="btn secondary" onClick={() => setConfirmSignOut(true)}>
+                  <LogOut size={15} /> Sign out
+                </button>
+              </div>
               <label className="form-label">
-                Workspace name
+                Organization name
                 <input
                   value={workspaceName}
                   onChange={(e) => setWorkspaceName(e.target.value)}
@@ -5020,6 +5030,33 @@ function Settings({
           </div>
         </section>
       </div>
+      {confirmSignOut && (
+        <div className="category-confirm" role="alertdialog" aria-modal="true" aria-labelledby="signout-title">
+          <div className="category-confirm-card">
+            <div className="danger-icon"><LogOut size={18} /></div>
+            <h2 id="signout-title">Sign out of Cephas CRM?</h2>
+            <p>You’ll need to sign in again to access the {account.name || "organization"} workspace.</p>
+            <div className="category-confirm-actions">
+              <button className="btn secondary" disabled={signingOut} onClick={() => setConfirmSignOut(false)}>Cancel</button>
+              <button
+                className="btn danger"
+                disabled={signingOut}
+                onClick={async () => {
+                  setSigningOut(true);
+                  try {
+                    await onSignOut();
+                  } finally {
+                    setSigningOut(false);
+                    setConfirmSignOut(false);
+                  }
+                }}
+              >
+                {signingOut ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

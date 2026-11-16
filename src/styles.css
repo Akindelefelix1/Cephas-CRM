@@ -5210,6 +5210,50 @@ tbody tr:hover {
   cursor: pointer;
 }
 
+.organization-profile-heading {
+  margin-top: 4px;
+}
+
+.organization-account-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 8px 0 20px;
+  border: 1px solid var(--line, #e7e5e4);
+  border-radius: 14px;
+  background: var(--surface-subtle, #faf9f7);
+}
+
+.organization-account-details {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.organization-account-details b,
+.organization-account-details small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organization-account-details small {
+  color: var(--muted, #77716b);
+}
+
+@media (max-width: 560px) {
+  .organization-account-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .organization-account-card .btn {
+    margin-left: auto;
+  }
+}
+
 .account-logout {
   min-height: 32px;
   display: inline-flex;
