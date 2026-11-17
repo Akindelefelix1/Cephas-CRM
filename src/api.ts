@@ -177,6 +177,8 @@ export const crmApi = {
     request<ApiSettings["workspace"]>("/settings", { method: "PATCH", body: JSON.stringify(input) }),
   createPrivacyRequest: (input: { requestType: ApiPrivacyRequest["requestType"]; email: string }) =>
     request<ApiPrivacyRequest>("/settings/privacy-requests", { method: "POST", body: JSON.stringify(input) }),
+  testZohoCampaignsConnection: () =>
+    request<{ connected: boolean; provider: string }>("/campaigns/zoho/test-connection", { method: "POST" }),
   listAuditEvents: (options: { search?: string; eventType?: string; limit?: number; offset?: number } = {}) => {
     const params = new URLSearchParams();
     if (options.search) params.set("search", options.search);
