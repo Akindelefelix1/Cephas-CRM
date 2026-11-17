@@ -312,19 +312,20 @@ export function CRMApp({
     [mobile, setMobile] = useState(false),
     [sidebarCollapsed, setSidebarCollapsed] = useState(false),
     [period, setPeriod] = useState("Last 30 days");
+  const periodDays = period === "Last 7 days" ? 7 : period === "Last 90 days" ? 90 : 30;
+  const analyticsForPeriod = analytics?.range.days === periodDays ? analytics : null;
   useEffect(() => {
     let active = true;
-    const days = period === "Last 7 days" ? 7 : period === "Last 90 days" ? 90 : 30;
     setAnalyticsLoading(true);
     setAnalyticsError("");
-    crmApi.getAnalytics(days)
+    crmApi.getAnalytics(periodDays)
       .then((report) => { if (active) setAnalytics(report); })
       .catch((error: unknown) => {
         if (active) setAnalyticsError(error instanceof Error ? error.message : "Could not load analytics from the CRM API.");
       })
       .finally(() => { if (active) setAnalyticsLoading(false); });
     return () => { active = false; };
-  }, [period, analyticsReloadKey, campaignsReloadKey, contactsReloadKey, campaignRecords, contacts]);
+  }, [periodDays, analyticsReloadKey, campaignsReloadKey, contactsReloadKey, campaignRecords, contacts]);
   useEffect(() => {
     let active = true;
     setContactsLoading(true);
@@ -2297,7 +2298,7 @@ export function CRMApp({
               }
             >
               {page === "Dashboard" && (
-                <Dashboard setPage={go} period={period} setPeriod={setPeriod} accountName={account.name || account.email} analytics={analytics} loading={analyticsLoading} error={analyticsError} retry={() => setAnalyticsReloadKey((key) => key + 1)} campaigns={campaignRecords} />
+                <Dashboard setPage={go} period={period} setPeriod={setPeriod} accountName={account.name || account.email} analytics={analyticsForPeriod} loading={analyticsLoading} error={analyticsError} retry={() => setAnalyticsReloadKey((key) => key + 1)} campaigns={campaignRecords} campaignsLoading={campaignsLoading} campaignsError={campaignsError} retryCampaigns={() => setCampaignsReloadKey((key) => key + 1)} />
               )}
               {page === "Contacts" && (
                 <ContactsListPage
@@ -2569,11 +2570,14 @@ export function CRMApp({
                   period={period}
                   setPeriod={setPeriod}
                   setPage={go}
-                  analytics={analytics}
+                  analytics={analyticsForPeriod}
                   loading={analyticsLoading}
                   error={analyticsError}
                   retry={() => setAnalyticsReloadKey((key) => key + 1)}
                   campaigns={campaignRecords}
+                  campaignsLoading={campaignsLoading}
+                  campaignsError={campaignsError}
+                  retryCampaigns={() => setCampaignsReloadKey((key) => key + 1)}
                 />
               )}
               {page === "Audit log" && (
