@@ -16,6 +16,7 @@ export type ApiContact = {
   tags: string[] | null;
   emailConsent: "Subscribed" | "Unsubscribed" | "Pending";
   smsConsent: "Subscribed" | "Unsubscribed" | "Pending";
+  whatsappConsent: "Subscribed" | "Unsubscribed" | "Pending";
   createdAt: string;
 };
 export type ApiCategory = { id: string; name: string };
@@ -65,11 +66,15 @@ export type ApiCampaign = {
   deliveredCount: number;
   failedCount: number;
   lastError: string | null;
+  whatsappTemplate?: string | null;
+  whatsappSender?: string | null;
+  whatsappMergeInfo?: string | null;
   createdAt: string;
   updatedAt: string;
 };
 export type ApiCampaignInput = {
   name: string;
+  channel?: "Email" | "SMS" | "WhatsApp";
   objective: string;
   subject: string;
   blocks: ApiCampaign["blocks"];
@@ -77,8 +82,29 @@ export type ApiCampaignInput = {
   excludedAudiences: string[];
   excludedContacts: string[];
   attachments: string[];
+  whatsappTemplate?: string;
+  whatsappSender?: string;
+  whatsappMergeInfo?: Record<string, string>;
   scheduledAt?: string;
 };
+export type ApiTemplate = {
+  id: string;
+  name: string;
+  channel: "Email" | "SMS" | "WhatsApp";
+  subject: string;
+  body: string;
+  emailBlocks: string | NonNullable<ApiCampaignInput["blocks"]>;
+  attachments: string[];
+  objective: string;
+  whatsappTemplate: string | null;
+  whatsappSender: string | null;
+  whatsappMergeInfo: string | Record<string, string>;
+  isDefault: boolean;
+  useCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApiTemplateInput = Omit<ApiTemplate, "id" | "isDefault" | "useCount" | "createdAt" | "updatedAt">;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}/api${path}`, {
@@ -198,11 +224,32 @@ export const crmApi = {
       { method: "DELETE" },
     ),
   listCampaigns: () => request<ApiCampaign[]>("/campaigns"),
+  listTemplates: () => request<ApiTemplate[]>("/templates"),
+  createTemplate: (template: ApiTemplateInput) =>
+    request<ApiTemplate>("/templates", { method: "POST", body: JSON.stringify(template) }),
+  updateTemplate: (id: string, template: ApiTemplateInput) =>
+    request<ApiTemplate>(`/templates/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(template) }),
+  deleteTemplate: (id: string) =>
+    request<{ deleted: boolean; id: string }>(`/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  useTemplate: (id: string) =>
+    request<{ id: string; useCount: number }>(`/templates/${encodeURIComponent(id)}/use`, { method: "POST" }),
   createCampaign: (campaign: ApiCampaignInput) =>
     request<ApiCampaign>("/campaigns", {
       method: "POST",
       body: JSON.stringify(campaign),
     }),
+  getSmsProviderStatus: () =>
+    request<{ configured: boolean; senderId: string | null; countryCode: string; channel: string }>(
+      "/campaigns/sms/provider-status",
+    ),
+  getWhatsAppProviderStatus: () =>
+    request<{ configured: boolean; sender: string | null }>(
+      "/campaigns/whatsapp/provider-status",
+    ),
+  refreshWhatsAppDelivery: (id: string) =>
+    request<{ total: number; delivered: number; failed: number; pending: number; errors: string[] }>(
+      `/campaigns/${encodeURIComponent(id)}/whatsapp-delivery`,
+    ),
   updateCampaign: (id: string, campaign: ApiCampaignInput) =>
     request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -272,6 +319,7 @@ export function contactFromApi(contact: ApiContact) {
     tags: contact.tags ?? [],
     status: contact.emailConsent,
     smsStatus: contact.smsConsent,
+    whatsappStatus: contact.whatsappConsent ?? "Pending",
     initials,
     color: "lavender",
     date: new Date(contact.createdAt).toLocaleDateString(),

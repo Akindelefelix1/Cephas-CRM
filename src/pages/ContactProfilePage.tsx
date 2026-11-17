@@ -98,10 +98,10 @@ export function ContactProfile({
   };
   const consentCopy =
     contact.status === "Subscribed"
-      ? "Email consent is subscribed. Check the separate SMS opt-in before sending texts."
+      ? "Email consent is subscribed. Check the separate SMS and WhatsApp opt-ins before sending messages."
       : contact.status === "Pending"
-        ? "Email consent is pending. Confirm permission before sending email; review SMS opt-in separately."
-        : "This contact unsubscribed from email. Keep email suppressed and review SMS opt-in separately.";
+        ? "Email consent is pending. Confirm permission before sending email; review SMS and WhatsApp opt-ins separately."
+        : "This contact unsubscribed from email. Keep email suppressed and review SMS and WhatsApp opt-ins separately.";
   return (
     <div className="contact-profile-page">
       <PageHeading
@@ -252,6 +252,12 @@ export function ContactProfile({
             <span>SMS communications</span>
             <Badge tone={contact.smsStatus ?? "Pending"}>
               {contact.smsStatus ?? "No preference recorded"}
+            </Badge>
+          </div>
+          <div className="consent-row">
+            <span>WhatsApp communications</span>
+            <Badge tone={contact.whatsappStatus ?? "Pending"}>
+              {contact.whatsappStatus ?? "No preference recorded"}
             </Badge>
           </div>
           <p className="profile-footnote">

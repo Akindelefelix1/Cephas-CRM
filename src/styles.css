@@ -3508,8 +3508,30 @@ tbody tr:hover {
   background: #fff;
 }
 .danger-quiet:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+  opacity: 1;
+  cursor: pointer;
+}
+.template-card-foot button:hover {
+  color: #4d3bbd;
+}
+.template-card-actions {
+  display: flex;
+  gap: 5px;
+}
+.template-card-actions button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ffffffa8;
+  border-radius: 7px;
+  color: #6255a6;
+  background: #ffffffa8;
+  cursor: pointer;
+}
+.template-card-actions button:hover {
+  color: #4534b3;
+  background: #fff;
 }
 .category-error {
   margin: -9px 2px 0;
@@ -5523,6 +5545,41 @@ tbody tr:hover {
 .auth-form input:focus {
   border-color: #8067d1;
   box-shadow: 0 0 0 3px rgba(112, 84, 200, 0.12);
+}
+
+.auth-password-field {
+  position: relative;
+  display: block;
+}
+
+.auth-password-field input {
+  padding-right: 46px;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 7px;
+  color: #747286;
+  background: transparent;
+  cursor: pointer;
+}
+
+.auth-password-toggle:hover {
+  color: #6044b7;
+  background: #f5f2fc;
+}
+
+.auth-password-toggle:focus-visible {
+  outline: 2px solid #8067d1;
+  outline-offset: 1px;
 }
 
 .auth-submit {

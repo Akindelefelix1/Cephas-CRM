@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowRight, LoaderCircle } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { authClient } from "./auth";
 import { CRMApp } from "./App";
 
@@ -52,6 +52,7 @@ export default function AuthApp() {
   const [verificationPending, setVerificationPending] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -632,16 +633,27 @@ export default function AuthApp() {
           </label>
           <label>
             Password
-            <input
-              type="password"
-              autoComplete={
-                mode === "sign-up" ? "new-password" : "current-password"
-              }
-              minLength={8}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
+            <span className="auth-password-field">
+              <input
+                type={passwordVisible ? "text" : "password"}
+                autoComplete={
+                  mode === "sign-up" ? "new-password" : "current-password"
+                }
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                className="auth-password-toggle"
+                type="button"
+                aria-label={passwordVisible ? "Hide password" : "Show password"}
+                aria-pressed={passwordVisible}
+                onClick={() => setPasswordVisible((visible) => !visible)}
+              >
+                {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </span>
           </label>
           {mode === "sign-in" && (
             <div className="auth-forgot-row">

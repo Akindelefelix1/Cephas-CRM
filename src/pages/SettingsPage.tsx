@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { TeamRole, TeamUser, PermissionId } from "../models";
 import { Badge, PageHeading } from "../components/Shared";
+import { crmApi } from "../api";
 import {
   loadTeamUsers,
   permissionCatalog,
@@ -51,6 +52,8 @@ export function Settings({
   const [inviteError, setInviteError] = useState("");
   const [editingPermissions, setEditingPermissions] = useState("");
   const [openProvider, setOpenProvider] = useState("");
+  const [termiiConfigured, setTermiiConfigured] = useState<boolean | null>(null);
+  const [whatsappConfigured, setWhatsappConfigured] = useState<boolean | null>(null);
   const [twoFactorRequired] = useState(true);
   const [privacyRequestType, setPrivacyRequestType] = useState("Access");
   const [privacyRequestEmail, setPrivacyRequestEmail] = useState("");
@@ -60,6 +63,16 @@ export function Settings({
   const isSuperadmin = users.some(
     (user) => user.email === "amara@cephas.ng" && user.role === "Superadmin",
   );
+  useEffect(() => {
+    crmApi
+      .getSmsProviderStatus()
+      .then((status) => setTermiiConfigured(status.configured))
+      .catch(() => setTermiiConfigured(false));
+    crmApi
+      .getWhatsAppProviderStatus()
+      .then((status) => setWhatsappConfigured(status.configured))
+      .catch(() => setWhatsappConfigured(false));
+  }, []);
   useEffect(() => {
     try {
       localStorage.setItem("cephas.team-users", JSON.stringify(users));
@@ -710,20 +723,41 @@ export function Settings({
           {tab === "Integrations" && openProvider && (
             <div className="provider-setup">
               <div>
-                <Badge tone="neutral">Not connected</Badge>
+                <Badge tone={
+                  openProvider === "Termii" && termiiConfigured ||
+                  openProvider === "WhatsApp Business" && whatsappConfigured
+                    ? "Subscribed"
+                    : "neutral"
+                }>
+                  {openProvider === "Termii"
+                    ? termiiConfigured ? "API key configured" : "API key missing"
+                    : openProvider === "WhatsApp Business"
+                      ? whatsappConfigured ? "API key configured" : "API key missing"
+                      : "Setup required"}
+                </Badge>
                 <h3>{openProvider} setup</h3>
                 <p>
-                  Connect credentials and verify a sender before enabling
-                  delivery. This preview does not transmit credentials or
-                  contact the provider.
+                  {openProvider === "Termii"
+                    ? "Bulk SMS campaigns are wired to Termii. Keep the API key in the backend environment; it is never sent to this browser."
+                    : openProvider === "WhatsApp Business"
+                      ? "WhatsApp campaigns use Zoho CPaaS and approved message templates. Keep its channel API key in the backend environment."
+                      : "Connect credentials and verify a sender before enabling delivery."}
                 </p>
               </div>
               <ul>
-                {openProvider === "WhatsApp Business" ? (
+                {openProvider === "Termii" ? (
                   <>
-                    <li>Meta business and WhatsApp Business Account IDs</li>
-                    <li>Verified WhatsApp sender and API credentials</li>
-                    <li>Approved message templates and webhooks</li>
+                    <li>Set TERMII_API_KEY in the CRM API Render environment</li>
+                    <li>Use an active sender ID approved in your Termii account</li>
+                    <li>Termii generic route is used for promotional SMS</li>
+                    <li>Only SMS-subscribed contacts with valid phone numbers are sent</li>
+                  </>
+                ) : openProvider === "WhatsApp Business" ? (
+                  <>
+                    <li>Set ZOHO_WHATSAPP_API_KEY in the CRM API Render environment</li>
+                    <li>Connect a Meta-approved WABA and verified sender in Zoho CPaaS</li>
+                    <li>Use approved Utility or Authentication templates; Marketing templates are unsupported</li>
+                    <li>Record WhatsApp opt-in separately on each contact</li>
                   </>
                 ) : (
                   <>

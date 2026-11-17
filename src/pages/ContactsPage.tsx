@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ContactRound,
   LoaderCircle,
+  MessageSquareText,
   MoreHorizontal,
   Plus,
   Search,
@@ -136,6 +137,14 @@ export function ContactsListPage({
           change="Live"
           hint="saved SMS opt-ins"
           color="orange"
+        />
+        <Stat
+          icon={<MessageSquareText />}
+          label="WhatsApp opted in"
+          value={String(contacts.filter((c) => c.whatsappStatus === "Subscribed").length)}
+          change="Live"
+          hint="saved WhatsApp opt-ins"
+          color="green"
         />
         <Stat
           icon={<Users />}

@@ -29,6 +29,7 @@ export function CampaignPageFunctional({
   scheduleCampaign,
   editCampaign,
   sendCampaign,
+  refreshWhatsAppDelivery,
   duplicateCampaign,
 }: {
   channel: "Email" | "SMS" | "WhatsApp";
@@ -44,6 +45,7 @@ export function CampaignPageFunctional({
   scheduleCampaign: (campaign: Campaign) => Promise<void>;
   editCampaign: (campaign: Campaign) => void;
   sendCampaign: (campaign: Campaign) => Promise<void>;
+  refreshWhatsAppDelivery: (campaign: Campaign) => Promise<void>;
   duplicateCampaign: (campaign: Campaign) => void;
 }) {
   const [status, setStatus] = useState("All");
@@ -121,7 +123,7 @@ export function CampaignPageFunctional({
           isMail
             ? "Create thoughtful email campaigns and newsletters your audience wants to open."
             : isWhatsApp
-              ? "Create personal WhatsApp campaigns using approved business message templates."
+              ? "Send approved Zoho CPaaS Utility or Authentication templates to contacts who opted in to WhatsApp."
               : "Reach your audience directly with personalised SMS campaigns."
         }
         action={
@@ -230,8 +232,11 @@ export function CampaignPageFunctional({
               <span className="light-count">{rows.length} shown</span>
             </h2>
             <p>
-              Email content, recipients, delivery status, and schedules are
-              saved through the CRM API.
+              {isMail
+                ? "Email content, recipients, delivery status, and schedules are saved through the CRM API."
+                : isWhatsApp
+                  ? "WhatsApp delivery needs a connected business messaging provider."
+                  : "SMS drafts and send results are saved through the CRM API. Only contacts opted in to SMS are included."}
             </p>
           </div>
         </div>
@@ -272,10 +277,9 @@ export function CampaignPageFunctional({
             }
             onEdit={editCampaign}
             onSend={
-              isMail
-                ? (campaign) => void runAction(campaign, sendCampaign)
-                : undefined
+              (campaign) => void runAction(campaign, sendCampaign)
             }
+            onRefreshDelivery={(campaign) => void runAction(campaign, refreshWhatsAppDelivery)}
             onDuplicate={duplicateCampaign}
             busyId={busyId}
           />

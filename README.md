@@ -4,6 +4,9 @@ A responsive, TypeScript-first React UI based on the Cephas CRM software require
 
 ## Run locally
 
+
+Both frontend and backend builds pass. To send live SMS, add TERMII_API_KEY and an approved TERMII_SENDER_ID to the API’s Render environment, then deploy both repos. Those account credentials aren’t available in the workspace, so I couldn’t verify a live send. Termii acceptance counts also aren’t handset delivery receipts.
+
 ```sh
 npm install
 npm run dev

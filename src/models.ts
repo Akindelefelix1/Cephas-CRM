@@ -1,4 +1,4 @@
-import type { ApiAudience, ApiAudienceDetail, ApiCampaign } from "./api";
+import type { ApiAudience, ApiAudienceDetail, ApiCampaign, ApiTemplate } from "./api";
 export type Page =
   | "Dashboard"
   | "Contacts"
@@ -30,6 +30,7 @@ export type Contact = {
   alternateEmails?: string[];
   status: "Subscribed" | "Unsubscribed" | "Pending";
   smsStatus?: "Subscribed" | "Unsubscribed" | "Pending";
+  whatsappStatus?: "Subscribed" | "Unsubscribed" | "Pending";
   initials: string;
   color: string;
   date: string;
@@ -59,6 +60,9 @@ export type Campaign = {
   excludedAudiences?: string[];
   excludedContacts?: string[];
   lastError?: string | null;
+  whatsappTemplate?: string;
+  whatsappSender?: string;
+  whatsappMergeInfo?: Record<string, string>;
 };
 export type AuditEvent = [string, string, string, string, string, string];
 export type FilterRule = { field: string; operator: string; value: string };
@@ -89,6 +93,9 @@ export type TeamUser = {
   permissions: PermissionId[];
 };
 export type TemplateDraft = {
+  id?: string;
+  isDefault?: boolean;
+  useCount?: number;
   name: string;
   channel: "Email" | "SMS" | "WhatsApp";
   subject: string;
@@ -98,6 +105,9 @@ export type TemplateDraft = {
   objective?: string;
   excludedAudiences?: string[];
   excludedContacts?: string[];
+  whatsappTemplate?: string;
+  whatsappSender?: string;
+  whatsappMergeInfo?: Record<string, string>;
 };
 export type AudienceRecord = {
   id: string;
@@ -130,14 +140,24 @@ export const campaignFromApi = (row: ApiCampaign): Campaign => {
   } catch {
     emailBlocks = [];
   }
+  const body = emailBlocks
+    .map((block) => block.content)
+    .filter(Boolean)
+    .join("\n\n");
+  let whatsappMergeInfo: Record<string, string> = {};
+  try {
+    whatsappMergeInfo = row.whatsappMergeInfo
+      ? (JSON.parse(row.whatsappMergeInfo) as Record<string, string>)
+      : {};
+  } catch {
+    whatsappMergeInfo = {};
+  }
   const message =
-    "Subject: " +
-    row.subject +
-    "\n\n" +
-    emailBlocks
-      .map((block) => block.content)
-      .filter(Boolean)
-      .join("\n\n");
+    row.channel === "Email"
+      ? `Subject: ${row.subject}\n\n${body}`
+      : row.channel === "SMS"
+        ? `${body}\n\nSender ID: ${row.subject}`
+        : `Zoho CPaaS template: ${row.whatsappTemplate ?? "(not selected)"}`;
   return {
     id: row.id,
     name: row.name,
@@ -159,6 +179,36 @@ export const campaignFromApi = (row: ApiCampaign): Campaign => {
     excludedAudiences: row.excludedAudiences,
     excludedContacts: row.excludedContacts,
     lastError: row.lastError,
+    whatsappTemplate: row.whatsappTemplate ?? undefined,
+    whatsappSender: row.whatsappSender ?? undefined,
+    whatsappMergeInfo,
+  };
+};
+export const templateFromApi = (row: ApiTemplate): TemplateDraft => {
+  let emailBlocks: EmailBlock[] = [];
+  let whatsappMergeInfo: Record<string, string> = {};
+  try {
+    const parsed = typeof row.emailBlocks === "string" ? JSON.parse(row.emailBlocks) : row.emailBlocks;
+    if (Array.isArray(parsed)) emailBlocks = parsed as EmailBlock[];
+  } catch { /* malformed legacy content should not break the library */ }
+  try {
+    const parsed = typeof row.whatsappMergeInfo === "string" ? JSON.parse(row.whatsappMergeInfo) : row.whatsappMergeInfo;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) whatsappMergeInfo = parsed as Record<string, string>;
+  } catch { /* malformed legacy merge fields are ignored */ }
+  return {
+    id: row.id,
+    name: row.name,
+    channel: row.channel,
+    subject: row.subject,
+    body: row.body,
+    emailBlocks,
+    attachments: row.attachments ?? [],
+    objective: row.objective,
+    whatsappTemplate: row.whatsappTemplate ?? undefined,
+    whatsappSender: row.whatsappSender ?? undefined,
+    whatsappMergeInfo,
+    isDefault: row.isDefault,
+    useCount: row.useCount,
   };
 };
 export const audienceRulesFromApi = (

@@ -10,6 +10,7 @@ export function CampaignTable({
   onEdit,
   onSend,
   onDuplicate,
+  onRefreshDelivery,
   busyId,
 }: {
   rows: Campaign[];
@@ -19,6 +20,7 @@ export function CampaignTable({
   onEdit?: (campaign: Campaign) => void;
   onSend?: (campaign: Campaign) => void;
   onDuplicate?: (campaign: Campaign) => void;
+  onRefreshDelivery?: (campaign: Campaign) => void;
   busyId?: string;
 }) {
   return (
@@ -37,6 +39,7 @@ export function CampaignTable({
               onSchedule ||
               onEdit ||
               onSend ||
+              onRefreshDelivery ||
               onDuplicate) && <th>ACTION</th>}
           </tr>
         </thead>
@@ -86,6 +89,7 @@ export function CampaignTable({
                 onSchedule ||
                 onEdit ||
                 onSend ||
+                onRefreshDelivery ||
                 onDuplicate) && (
                 <td>
                   {onRequestApproval && c.status === "Draft" ? (
@@ -146,6 +150,16 @@ export function CampaignTable({
                           : c.status === "Draft"
                             ? "Send now"
                             : "Retry send"}
+                      </button>
+                    )}
+                  {onRefreshDelivery && c.channel === "WhatsApp" &&
+                    ["Sent", "Sent with failures"].includes(c.status) && (
+                      <button
+                        className="text-link"
+                        disabled={Boolean(busyId)}
+                        onClick={() => onRefreshDelivery(c)}
+                      >
+                        {busyId === (c.id ?? c.name) ? "Refreshing..." : "Refresh delivery"}
                       </button>
                     )}
                   {onDuplicate && (

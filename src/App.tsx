@@ -45,6 +45,7 @@ import {
   campaignFromApi,
   audienceRulesFromApi,
   audienceRecordFromApi,
+  templateFromApi,
 } from "./models";
 import { auditRows } from "./data/fixtures";
 import {
@@ -251,6 +252,9 @@ export function CRMApp({
     [campaignsError, setCampaignsError] = useState(""),
     [campaignsReloadKey, setCampaignsReloadKey] = useState(0),
     [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>([]),
+    [templatesLoading, setTemplatesLoading] = useState(true),
+    [templatesError, setTemplatesError] = useState(""),
+    [templatesReloadKey, setTemplatesReloadKey] = useState(0),
     [campaignTemplateSeed, setCampaignTemplateSeed] =
       useState<TemplateDraft | null>(null),
     [campaignEditId, setCampaignEditId] = useState<string | null>(null),
@@ -391,6 +395,18 @@ export function CRMApp({
       active = false;
     };
   }, [campaignsReloadKey]);
+  useEffect(() => {
+    let active = true;
+    setTemplatesLoading(true);
+    setTemplatesError("");
+    crmApi.listTemplates()
+      .then((rows) => { if (active) setTemplateDrafts(rows.map(templateFromApi)); })
+      .catch((error: unknown) => {
+        if (active) setTemplatesError(error instanceof Error ? error.message : "Could not load templates from the CRM API");
+      })
+      .finally(() => { if (active) setTemplatesLoading(false); });
+    return () => { active = false; };
+  }, [templatesReloadKey]);
   const toApiContact = (
     contact: Contact,
   ): Omit<ApiContact, "id" | "createdAt"> => {
@@ -408,6 +424,7 @@ export function CRMApp({
       tags: contact.tags ?? [],
       emailConsent: contact.status,
       smsConsent: contact.smsStatus ?? "Pending",
+      whatsappConsent: contact.whatsappStatus ?? "Pending",
     };
   };
   const filtered = useMemo(
@@ -728,6 +745,9 @@ export function CRMApp({
       contact.smsStatus !== activeContact?.smsStatus
         ? `SMS opt-in ${activeContact?.smsStatus ?? "Pending"} → ${contact.smsStatus ?? "Pending"}`
         : "",
+      contact.whatsappStatus !== activeContact?.whatsappStatus
+        ? `WhatsApp opt-in ${activeContact?.whatsappStatus ?? "Pending"} → ${contact.whatsappStatus ?? "Pending"}`
+        : "",
     ].filter(Boolean);
     recordAudit(
       "Updated contact",
@@ -775,6 +795,15 @@ export function CRMApp({
             ? "Pending"
             : existing.smsStatus === "Subscribed" &&
                 incoming.smsStatus === "Subscribed"
+              ? "Subscribed"
+              : "Pending",
+      whatsappStatus:
+        existing.whatsappStatus === "Unsubscribed" ||
+        incoming.whatsappStatus === "Unsubscribed"
+          ? "Unsubscribed"
+          : existing.whatsappStatus === "Pending" || incoming.whatsappStatus === "Pending"
+            ? "Pending"
+            : existing.whatsappStatus === "Subscribed" && incoming.whatsappStatus === "Subscribed"
               ? "Subscribed"
               : "Pending",
     };
@@ -967,6 +996,8 @@ export function CRMApp({
       excludedContacts: string[];
     },
     campaignId?: string | null,
+    senderId = "",
+    whatsappConfig?: { template: string; sender: string; mergeInfo: Record<string, string> },
   ) => {
     let saved: Campaign;
     let scheduleFailure = "";
@@ -992,6 +1023,43 @@ export function CRMApp({
       if (scheduledAt && result.status !== "Scheduled")
         scheduleFailure =
           result.lastError || "Zoho Campaigns could not schedule the campaign";
+    } else if (channel === "SMS") {
+      const match = message.match(/\n\nSender ID: ([A-Za-z0-9]{3,11})$/);
+      const body = message.replace(/\n\nSender ID: [A-Za-z0-9]{3,11}$/, "").trim();
+      const input = {
+        name,
+        channel: "SMS" as const,
+        objective,
+        subject: senderId || match?.[1] || "",
+        blocks: [{ id: "sms-message", type: "text" as const, content: body }],
+        includedAudiences: targeting?.includedAudiences ?? [],
+        excludedAudiences: targeting?.excludedAudiences ?? [],
+        excludedContacts: targeting?.excludedContacts ?? [],
+        attachments: [],
+      };
+      const result = campaignId
+        ? await crmApi.updateCampaign(campaignId, input)
+        : await crmApi.createCampaign(input);
+      saved = campaignFromApi(result);
+    } else if (channel === "WhatsApp") {
+      const input = {
+        name,
+        channel: "WhatsApp" as const,
+        objective,
+        subject: "",
+        blocks: [],
+        includedAudiences: targeting?.includedAudiences ?? [],
+        excludedAudiences: targeting?.excludedAudiences ?? [],
+        excludedContacts: targeting?.excludedContacts ?? [],
+        attachments: [],
+        whatsappTemplate: whatsappConfig?.template ?? "",
+        whatsappSender: whatsappConfig?.sender ?? "",
+        whatsappMergeInfo: whatsappConfig?.mergeInfo ?? {},
+      };
+      const result = campaignId
+        ? await crmApi.updateCampaign(campaignId, input)
+        : await crmApi.createCampaign(input);
+      saved = campaignFromApi(result);
     } else {
       saved = {
         name,
@@ -1049,7 +1117,7 @@ export function CRMApp({
   };
   const requestCampaignApproval = async (campaign: Campaign) => {
     if (!campaign.id) return;
-    updateCampaignRecord(await crmApi.approveCampaign(campaign.id));
+    updateCampaignRecord(await crmApi.requestCampaignApproval(campaign.id));
     recordAudit(
       "Submitted campaign for approval",
       campaign.name,
@@ -1075,14 +1143,47 @@ export function CRMApp({
     const result = await crmApi.sendCampaign(campaign.id);
     updateCampaignRecord(result);
     recordAudit(
-      "Submitted email campaign to Zoho Campaigns",
+      campaign.channel === "SMS"
+        ? "Submitted SMS campaign to Termii"
+        : campaign.channel === "WhatsApp"
+          ? "Queued WhatsApp campaign through Zoho CPaaS"
+          : "Submitted email campaign to Zoho Campaigns",
       `${campaign.name} · ${result.delivery.sent} recipients · ${result.delivery.failed} errors`,
       "Campaign sent",
     );
     notify(
       result.delivery.failed
         ? `${campaign.name}: ${result.delivery.sent} sent, ${result.delivery.failed} failed. Review campaign details before retrying.`
-        : `${campaign.name} submitted to Zoho Campaigns for ${result.delivery.sent} subscribed contacts`,
+        : campaign.channel === "SMS"
+          ? `${campaign.name} accepted by Termii for ${result.delivery.sent} opted-in contacts`
+          : campaign.channel === "WhatsApp"
+            ? `${campaign.name}: Zoho CPaaS queued messages for ${result.delivery.sent} opted-in contacts. Refresh delivery to check receipts.`
+            : `${campaign.name} submitted to Zoho Campaigns for ${result.delivery.sent} subscribed contacts`,
+    );
+  };
+  const refreshWhatsAppDelivery = async (campaign: Campaign) => {
+    if (!campaign.id) return;
+    const delivery = await crmApi.refreshWhatsAppDelivery(campaign.id);
+    setCampaignRecords((current) =>
+      current.map((item) =>
+        item.id === campaign.id
+          ? {
+              ...item,
+              reach: String(delivery.total),
+              engagement: `${delivery.delivered} delivered · ${delivery.pending} pending · ${delivery.failed} failed`,
+            }
+          : item,
+      ),
+    );
+    recordAudit(
+      "Refreshed WhatsApp delivery status",
+      `${campaign.name} · ${delivery.delivered} delivered · ${delivery.pending} pending · ${delivery.failed} failed`,
+      "WhatsApp delivery",
+    );
+    notify(
+      delivery.errors.length
+        ? `Delivery status refreshed with ${delivery.errors.length} lookup error(s).`
+        : `${delivery.delivered} delivered · ${delivery.pending} pending · ${delivery.failed} failed`,
     );
   };
   const duplicateCampaign = (campaign: Campaign) => {
@@ -1116,6 +1217,9 @@ export function CRMApp({
       objective: campaign.objective,
       excludedAudiences: campaign.excludedAudiences,
       excludedContacts: campaign.excludedContacts,
+      whatsappTemplate: campaign.whatsappTemplate,
+      whatsappSender: campaign.whatsappSender,
+      whatsappMergeInfo: campaign.whatsappMergeInfo,
     });
     const includedAudiences = campaign.includedAudiences?.length
       ? campaign.includedAudiences.join(", ")
@@ -1137,7 +1241,7 @@ export function CRMApp({
     const subject = campaign.message?.match(/^Subject: ([^\n]*)/)?.[1] ?? "";
     setCampaignTemplateSeed({
       name: campaign.name,
-      channel: "Email",
+      channel: campaign.channel,
       subject,
       body: "",
       emailBlocks: campaign.emailBlocks ?? [],
@@ -1145,10 +1249,13 @@ export function CRMApp({
       objective: campaign.objective,
       excludedAudiences: campaign.excludedAudiences,
       excludedContacts: campaign.excludedContacts,
+      whatsappTemplate: campaign.whatsappTemplate,
+      whatsappSender: campaign.whatsappSender,
+      whatsappMergeInfo: campaign.whatsappMergeInfo,
     });
     setCampaignAudienceSeed(campaign.includedAudiences?.join(", ") ?? "");
     setCampaignEditId(campaign.id);
-    setModal("email");
+    setModal(campaign.channel === "Email" ? "email" : campaign.channel === "SMS" ? "sms" : "whatsapp");
   };
   const cancelScheduled = async (campaign: Campaign) => {
     if (!campaign.id) return;
@@ -1494,21 +1601,59 @@ export function CRMApp({
     );
     recordAudit("Used campaign template", template.name, "Template used");
   };
-  const addTemplateDraft = (template: TemplateDraft) => {
-    setTemplateDrafts((current) => [template, ...current]);
+  const saveTemplateDraft = async (template: TemplateDraft) => {
+    const input = {
+      name: template.name,
+      channel: template.channel,
+      subject: template.subject,
+      body: template.body,
+      emailBlocks: template.emailBlocks ?? [],
+      attachments: template.attachments ?? [],
+      objective: template.objective ?? "",
+      whatsappTemplate: template.whatsappTemplate ?? null,
+      whatsappSender: template.whatsappSender ?? null,
+      whatsappMergeInfo: template.whatsappMergeInfo ?? {},
+    };
+    const saved = template.id
+      ? await crmApi.updateTemplate(template.id, input)
+      : await crmApi.createTemplate(input);
+    const savedDraft = templateFromApi(saved);
+    setTemplateDrafts((current) => template.id
+      ? current.map((item) => item.id === template.id ? savedDraft : item)
+      : [...current, savedDraft].sort((a, b) => a.name.localeCompare(b.name)));
     const { name, channel } = template;
     recordAudit(
-      "Created template draft",
+      template.id ? "Updated template" : "Created template",
       `${name} · ${channel}`,
-      "Template draft",
+      "Template",
     );
     setModal("");
-    notify("Template draft saved in this preview");
+    setCampaignTemplateSeed(null);
+    notify(template.id ? "Template updated" : "Template created");
+  };
+  const deleteTemplate = async (template: TemplateDraft) => {
+    if (!template.id) return;
+    await crmApi.deleteTemplate(template.id);
+    setTemplateDrafts((current) => current.filter((item) => item.id !== template.id));
+    recordAudit("Deleted template", template.name, "Template");
+    notify(`${template.name} deleted`);
+  };
+  const editTemplate = (template: TemplateDraft) => {
+    setCampaignTemplateSeed(template);
+    setModal("template");
+  };
+  const useSavedTemplate = async (template: TemplateDraft) => {
+    openCampaignFromTemplate(template);
+    if (!template.id) return;
+    try {
+      const updated = await crmApi.useTemplate(template.id);
+      setTemplateDrafts((current) => current.map((item) => item.id === updated.id ? { ...item, useCount: updated.useCount } : item));
+    } catch { /* Campaign setup remains available even if usage tracking is unavailable. */ }
   };
   const exportCsv = (rows: Contact[] = filtered) => {
     const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
     const csv = [
-      "Name,Email,Alternate_Emails,Phone,Organization,Category,Location,Interests,Tags,Email_Consent_Status,SMS_Consent_Status",
+      "Name,Email,Alternate_Emails,Phone,Organization,Category,Location,Interests,Tags,Email_Consent_Status,SMS_Consent_Status,WhatsApp_Consent_Status",
       ...rows.map((c) =>
         [
           c.name,
@@ -1522,6 +1667,7 @@ export function CRMApp({
           (c.tags ?? []).join("; "),
           c.status,
           c.smsStatus ?? "Pending",
+          c.whatsappStatus ?? "Pending",
         ]
           .map(escape)
           .join(","),
@@ -1557,6 +1703,7 @@ export function CRMApp({
         tags,
         status,
         smsStatus,
+        whatsappStatus,
       }) => ({
         Name: name,
         Email: email,
@@ -1569,6 +1716,7 @@ export function CRMApp({
         Tags: (tags ?? []).join(", "),
         Consent_Status: status,
         SMS_Consent_Status: smsStatus ?? "Pending",
+        WhatsApp_Consent_Status: whatsappStatus ?? "Pending",
       }),
     );
     const workbook = XLSX.utils.book_new();
@@ -1649,7 +1797,8 @@ export function CRMApp({
             "marketing_consent",
             "email_consent_status",
           ),
-          smsConsentAt = index("sms_consent_status", "sms_opt_in_status");
+          smsConsentAt = index("sms_consent_status", "sms_opt_in_status"),
+          whatsappConsentAt = index("whatsapp_consent_status", "whatsapp_opt_in_status");
         const phoneAt = index("phone", "phone_number", "mobile"),
           organizationAt = index("organization", "organisation", "company"),
           interestsAt = index("interests", "interest"),
@@ -1720,6 +1869,14 @@ export function CRMApp({
                   smsConsentValue === "opted_out"
                 ? "Unsubscribed"
                 : "Pending";
+          const whatsappConsentValue =
+            whatsappConsentAt >= 0 ? values[whatsappConsentAt]?.toLowerCase() : "";
+          const whatsappStatus: Contact["status"] =
+            whatsappConsentValue === "subscribed" || whatsappConsentValue === "consented" || whatsappConsentValue === "opted_in"
+              ? "Subscribed"
+              : whatsappConsentValue === "unsubscribed" || whatsappConsentValue === "opted_out"
+                ? "Unsubscribed"
+                : "Pending";
           return [
             {
               name,
@@ -1762,6 +1919,7 @@ export function CRMApp({
                   : [],
               status,
               smsStatus,
+              whatsappStatus,
               initials,
               color: ["lavender", "peach", "mint", "blue", "pink", "yellow"][
                 i % 6
@@ -2182,6 +2340,7 @@ export function CRMApp({
                   scheduleCampaign={scheduleCampaign}
                   editCampaign={editCampaign}
                   sendCampaign={sendCampaign}
+                  refreshWhatsAppDelivery={refreshWhatsAppDelivery}
                   duplicateCampaign={duplicateCampaign}
                 />
               )}
@@ -2200,6 +2359,7 @@ export function CRMApp({
                   scheduleCampaign={scheduleCampaign}
                   editCampaign={editCampaign}
                   sendCampaign={sendCampaign}
+                  refreshWhatsAppDelivery={refreshWhatsAppDelivery}
                   duplicateCampaign={duplicateCampaign}
                 />
               )}
@@ -2218,6 +2378,7 @@ export function CRMApp({
                   scheduleCampaign={scheduleCampaign}
                   editCampaign={editCampaign}
                   sendCampaign={sendCampaign}
+                  refreshWhatsAppDelivery={refreshWhatsAppDelivery}
                   duplicateCampaign={duplicateCampaign}
                 />
               )}
@@ -2225,7 +2386,12 @@ export function CRMApp({
                 <TemplateLibrary
                   drafts={templateDrafts}
                   setModal={setModal}
-                  useTemplate={openCampaignFromTemplate}
+                  loading={templatesLoading}
+                  error={templatesError}
+                  reload={() => setTemplatesReloadKey((key) => key + 1)}
+                  useTemplate={useSavedTemplate}
+                  editTemplate={editTemplate}
+                  deleteTemplate={deleteTemplate}
                 />
               )}
               {page === "Scheduled" && (
@@ -2332,7 +2498,7 @@ export function CRMApp({
               ]}
               initialTemplate={campaignTemplateSeed}
               contacts={contacts}
-              saveTemplate={addTemplateDraft}
+              saveTemplate={saveTemplateDraft}
               importContacts={importCsv}
               recordAudit={recordAudit}
               notify={notify}
