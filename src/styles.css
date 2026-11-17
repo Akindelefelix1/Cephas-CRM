@@ -1962,8 +1962,8 @@ tbody tr:hover {
   min-width: 790px;
 }
 .campaign-row-error {
-  display: block;
-  max-width: 240px;
+  display: inline-flex;
+  max-width: 100%;
   margin-top: 5px;
   padding: 0;
   border: 0;
@@ -1972,28 +1972,57 @@ tbody tr:hover {
   font-size: 9px;
   line-height: 1.4;
   text-align: left;
+  white-space: nowrap;
+  text-decoration: underline;
   cursor: pointer;
 }
-.campaign-row-error-text {
-  display: -webkit-box;
-  overflow: hidden;
+.campaign-row-error:hover,
+.campaign-row-error:focus-visible {
+  color: #883b42;
+}
+.campaign-error-dialog {
+  width: min(100%, 560px);
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+.campaign-error-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.campaign-error-close {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #eeedf4;
+  border-radius: 9px;
+  color: #77758b;
+  background: #fff;
+}
+.campaign-error-close:hover {
+  background: #f7f6fc;
+  color: #49465f;
+}
+.campaign-error-campaign-name {
+  margin: 0 0 12px;
+  color: #77758b;
+  font-size: 12px;
+}
+.campaign-error-full-message {
+  max-height: min(48vh, 360px);
+  overflow: auto;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #f0d9dc;
+  border-radius: 9px;
+  color: #8e4149;
+  background: #fff8f8;
+  font: 11px/1.65 "DM Sans", sans-serif;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.campaign-row-error-text.expanded {
-  display: block;
-  overflow: visible;
-}
-.campaign-error-toggle {
-  display: inline-block;
-  margin-top: 2px;
-  color: #76586a;
-  font-weight: 600;
-}
-.campaign-row-error:hover .campaign-error-toggle,
-.campaign-row-error:focus-visible .campaign-error-toggle {
-  text-decoration: underline;
+  user-select: text;
 }
 .template-tabs {
   padding: 0;
@@ -3898,6 +3927,7 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
   padding: 14px 15px;
   border: 1px solid #e5e0ff;
   border-radius: 11px;
@@ -3915,6 +3945,10 @@ tbody tr:hover {
 }
 .superadmin-notice > div {
   flex: 1;
+  min-width: 0;
+}
+.superadmin-notice > .badge {
+  flex: 0 0 auto;
 }
 .superadmin-notice b {
   color: #39374f;
@@ -3925,6 +3959,7 @@ tbody tr:hover {
   color: #838197;
   font-size: 10px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .team-access-heading {
   display: flex;

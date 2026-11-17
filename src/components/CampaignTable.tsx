@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Mail, MessageCircle, MessageSquareText } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CircleAlert, Mail, MessageCircle, MessageSquareText, X } from "lucide-react";
 import type { Campaign } from "../models";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
 import { Badge } from "./Shared";
@@ -25,7 +25,16 @@ export function CampaignTable({
   onRefreshDelivery?: (campaign: Campaign) => void;
   busyId?: string;
 }) {
-  const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
+  const [selectedError, setSelectedError] = useState<{ campaignName: string; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!selectedError) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedError(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedError]);
   const hasActions =
     onRequestApproval ||
     onSchedule ||
@@ -170,16 +179,10 @@ export function CampaignTable({
                   <button
                     type="button"
                     className="campaign-row-error"
-                    title={campaign.lastError}
-                    aria-expanded={expandedErrorId === (campaign.id ?? campaign.name)}
-                    aria-label={`${expandedErrorId === (campaign.id ?? campaign.name) ? "Hide" : "Read"} full failure message for ${campaign.name}`}
-                    onClick={() => {
-                      const id = campaign.id ?? campaign.name;
-                      setExpandedErrorId((current) => current === id ? null : id);
-                    }}
+                    aria-label={`Read full failure message for ${campaign.name}`}
+                    onClick={() => setSelectedError({ campaignName: campaign.name, message: campaign.lastError! })}
                   >
-                    <span className={expandedErrorId === (campaign.id ?? campaign.name) ? "campaign-row-error-text expanded" : "campaign-row-error-text"}>{campaign.lastError}</span>
-                    <span className="campaign-error-toggle">{expandedErrorId === (campaign.id ?? campaign.name) ? "Hide details" : "Read full error"}</span>
+                    <span>View error details</span>
                   </button>
                 )}
               </td>
@@ -198,6 +201,22 @@ export function CampaignTable({
           ))}
         </tbody>
       </table>
+      {selectedError && (
+        <div className="category-confirm campaign-error-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setSelectedError(null);
+        }}>
+          <section className="category-confirm-card campaign-error-dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-error-title" aria-describedby="campaign-error-message">
+            <div className="campaign-error-dialog-head">
+              <div className="danger-icon"><CircleAlert size={18} /></div>
+              <button type="button" className="campaign-error-close" aria-label="Close error details" onClick={() => setSelectedError(null)}><X size={18} /></button>
+            </div>
+            <h2 id="campaign-error-title">Campaign error details</h2>
+            <p className="campaign-error-campaign-name">{selectedError.campaignName}</p>
+            <pre id="campaign-error-message" className="campaign-error-full-message">{selectedError.message}</pre>
+            <div className="category-confirm-actions"><button type="button" className="btn secondary" onClick={() => setSelectedError(null)}>Close</button></div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
