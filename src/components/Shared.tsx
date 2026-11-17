@@ -48,7 +48,7 @@ export function PageHeading({
   desc,
   action,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   desc: string;
   action?: React.ReactNode;
@@ -56,7 +56,7 @@ export function PageHeading({
   return (
     <div className="page-heading">
       <div>
-        <p className="eyebrow">{eyebrow}</p>
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h1>{title}</h1>
         <p className="page-desc">{desc}</p>
       </div>

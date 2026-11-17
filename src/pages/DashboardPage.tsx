@@ -1,257 +1,31 @@
-import {
-  ArrowUpRight,
-  Check,
-  ContactRound,
-  Mail,
-  MessageCircle,
-  MessageSquareText,
-  MoreHorizontal,
-  Plus,
-  Send,
-  Sparkles,
-  Users,
-} from "lucide-react";
-import type { Page } from "../models";
+import { ArrowUpRight, ContactRound, Mail, MessageCircle, MessageSquareText, Plus, Send, Sparkles, Users } from "lucide-react";
+import type { ApiAnalytics } from "../api";
+import type { Page, Campaign } from "../models";
 import { PageHeading, Stat } from "../components/Shared";
-import { campaigns } from "../data/fixtures";
 import { CampaignTable } from "../components/CampaignTable";
 import { PerformanceChart } from "../components/PerformanceChart";
 
-export function Dashboard({
-  setPage,
-  period,
-  setPeriod,
-}: {
-  setPage: (p: Page) => void;
-  period: string;
-  setPeriod: (s: string) => void;
+const number = (value: number) => new Intl.NumberFormat().format(value);
+const shortNumber = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+
+export function Dashboard({ setPage, period, setPeriod, accountName, analytics, loading, error, retry, campaigns }: {
+  setPage: (p: Page) => void; period: string; setPeriod: (s: string) => void; accountName: string;
+  analytics: ApiAnalytics | null; loading: boolean; error: string; retry: () => void; campaigns: Campaign[];
 }) {
-  return (
-    <>
-      <PageHeading
-        eyebrow="THURSDAY, NOVEMBER 13, 2026 · SAMPLE DATA"
-        title="Good morning, Amara 👋"
-        desc="Here’s what’s happening with your audience today."
-        action={
-          <>
-            <button
-              className="btn secondary"
-              onClick={() => setPage("Reports")}
-            >
-              <ArrowUpRight size={16} /> View reports
-            </button>
-            <button
-              className="btn primary"
-              onClick={() => setPage("Email campaigns")}
-            >
-              <Plus size={17} /> Create campaign
-            </button>
-          </>
-        }
-      />
-      <div className="welcome-banner">
-        <div className="welcome-orb orb1" />
-        <div className="welcome-orb orb2" />
-        <div className="welcome-copy">
-          <div className="banner-label">
-            <Sparkles size={14} /> YOUR CRM AT A GLANCE
-          </div>
-          <h2>
-            Good relationships start with
-            <br />
-            the right conversation.
-          </h2>
-          <p>Reach the people who matter, with messages that do too.</p>
-          <button onClick={() => setPage("Contacts")}>
-            Explore your audience <ArrowUpRight size={15} />
-          </button>
-        </div>
-        <div className="banner-art">
-          <div className="art-circle">
-            <div className="art-inner">
-              <Mail size={31} />
-            </div>
-            <span className="art-bubble bubble-a">
-              <Users size={18} />
-            </span>
-            <span className="art-bubble bubble-b">
-              <MessageSquareText size={17} />
-            </span>
-            <span className="art-bubble bubble-c">
-              <Sparkles size={16} />
-            </span>
-          </div>
-        </div>
-      </div>
-      <div className="section-row">
-        <div>
-          <h2 className="section-title">Your workspace</h2>
-          <p className="section-subtitle">A snapshot of your CRM activity.</p>
-        </div>
-        <select
-          className="period-select"
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-        >
-          <option>Last 7 days</option>
-          <option>Last 30 days</option>
-          <option>Last 90 days</option>
-        </select>
-      </div>
-      <div className="stats-grid">
-        <Stat
-          icon={<ContactRound />}
-          label="Total contacts"
-          value="2,486"
-          change="12.8%"
-          hint="vs last month"
-          color="lav"
-        />
-        <Stat
-          icon={<Send />}
-          label="Campaigns sent"
-          value="18"
-          change="16.4%"
-          hint="vs last month"
-          color="blue"
-        />
-        <Stat
-          icon={<Mail />}
-          label="Emails delivered"
-          value="24.8k"
-          change="8.2%"
-          hint="vs last month"
-          color="orange"
-        />
-        <Stat
-          icon={<MessageSquareText />}
-          label="SMS sent"
-          value="3,642"
-          change="4.6%"
-          hint="vs last month"
-          color="green"
-        />
-      </div>
-      <div className="dashboard-grid">
-        <section className="panel chart-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Campaign performance</h2>
-              <p>Delivery and engagement over time</p>
-            </div>
-            <button className="icon-btn" onClick={() => setPage("Reports")}>
-              <MoreHorizontal size={19} />
-            </button>
-          </div>
-          <div className="chart-legend">
-            <span>
-              <i className="legend-dot violet-dot" />
-              Delivered
-            </span>
-            <span>
-              <i className="legend-dot orange-dot" />
-              Engagement
-            </span>
-            <span className="chart-total">
-              <b>28.4k</b>
-              <small>messages delivered</small>
-            </span>
-          </div>
-          <PerformanceChart />
-          <div className="chart-labels">
-            <span>Oct 15</span>
-            <span>Oct 20</span>
-            <span>Oct 25</span>
-            <span>Oct 30</span>
-            <span>Nov 04</span>
-            <span>Nov 09</span>
-            <span>Nov 13</span>
-          </div>
-        </section>
-        <section className="panel channel-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Channel overview</h2>
-              <p>How your messages are performing</p>
-            </div>
-            <button className="icon-btn" onClick={() => setPage("Reports")}>
-              <ArrowUpRight size={17} />
-            </button>
-          </div>
-          <div className="channel-item">
-            <div className="channel-icon mail-icon">
-              <Mail size={19} />
-            </div>
-            <div className="channel-info">
-              <b>Email</b>
-              <small>24,820 delivered</small>
-            </div>
-            <div className="channel-rate">
-              <b>98.4%</b>
-              <small>delivery rate</small>
-            </div>
-          </div>
-          <div className="channel-track">
-            <span className="email-track" />
-          </div>
-          <div className="channel-item">
-            <div className="channel-icon sms-icon">
-              <MessageSquareText size={19} />
-            </div>
-            <div className="channel-info">
-              <b>SMS</b>
-              <small>3,642 delivered</small>
-            </div>
-            <div className="channel-rate">
-              <b>96.8%</b>
-              <small>delivery rate</small>
-            </div>
-          </div>
-          <div className="channel-track">
-            <span className="sms-track" />
-          </div>
-          <div className="channel-item">
-            <div className="channel-icon whatsapp-icon">
-              <MessageCircle size={19} />
-            </div>
-            <div className="channel-info">
-              <b>WhatsApp</b>
-              <small>1,196 delivered · sample</small>
-            </div>
-            <div className="channel-rate">
-              <b>72.6%</b>
-              <small>read rate</small>
-            </div>
-          </div>
-          <div className="channel-track">
-            <span className="whatsapp-track" />
-          </div>
-          <div className="channel-foot">
-            <span>
-              <i className="live-dot" />
-              Sample provider status
-            </span>
-            <b>
-              Illustrative <Check size={14} />
-            </b>
-          </div>
-        </section>
-      </div>
-      <section className="panel recent-panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Recent campaigns</h2>
-            <p>Your latest communication activity.</p>
-          </div>
-          <button
-            className="text-link"
-            onClick={() => setPage("Email campaigns")}
-          >
-            View all campaigns <ArrowUpRight size={14} />
-          </button>
-        </div>
-        <CampaignTable rows={campaigns.slice(0, 3)} />
-      </section>
-    </>
-  );
+  const firstName = accountName.trim().split(/\s+/)[0] || "there";
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const sentChannels = analytics?.channels ?? [];
+  const channelInfo = (channel: string) => sentChannels.find((entry) => entry.channel === channel);
+  return <>
+    <PageHeading eyebrow={new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }).toUpperCase()} title={`${greeting}, ${firstName}`} desc="Here’s what’s happening in your workspace." action={<><button className="btn secondary" onClick={() => setPage("Reports")}><ArrowUpRight size={16} /> View reports</button><button className="btn primary" onClick={() => setPage("Email campaigns")}><Plus size={17} /> Create campaign</button></>} />
+    <div className="welcome-banner"><div className="welcome-orb orb1" /><div className="welcome-orb orb2" /><div className="welcome-copy"><div className="banner-label"><Sparkles size={14} /> YOUR CRM AT A GLANCE</div><h2>Good relationships start with<br />the right conversation.</h2><p>Reach the people who matter, with messages that do too.</p><button onClick={() => setPage("Contacts")}>Explore your audience <ArrowUpRight size={15} /></button></div><div className="banner-art"><div className="art-circle"><div className="art-inner"><Mail size={31} /></div><span className="art-bubble bubble-a"><Users size={18} /></span><span className="art-bubble bubble-b"><MessageSquareText size={17} /></span><span className="art-bubble bubble-c"><Sparkles size={16} /></span></div></div></div>
+    <div className="section-row"><div><h2 className="section-title">Your workspace</h2><p className="section-subtitle">Activity from your CRM records for the selected period.</p></div><select className="period-select" value={period} onChange={(e) => setPeriod(e.target.value)}><option>Last 7 days</option><option>Last 30 days</option><option>Last 90 days</option></select></div>
+    {error ? <div className="analytics-state error" role="alert"><b>Could not load dashboard data</b><span>{error}</span><button className="btn secondary" onClick={retry}>Retry</button></div> : loading && !analytics ? <div className="analytics-state" role="status">Loading live workspace metrics…</div> : analytics ? <>
+      <div className="stats-grid"><Stat icon={<ContactRound />} label="Total contacts" value={number(analytics.summary.contactsTotal)} change="Live" hint={`${number(analytics.summary.contactsAdded)} added in period`} color="lav" /><Stat icon={<Send />} label="Campaigns sent" value={number(analytics.summary.campaignsSent)} change="Live" hint={period} color="blue" /><Stat icon={<Mail />} label="Recipients" value={shortNumber(analytics.summary.recipients)} change="Live" hint="in sent campaigns" color="orange" /><Stat icon={<MessageSquareText />} label="Provider accepted" value={shortNumber(analytics.summary.providerAccepted)} change="Live" hint="email and SMS acceptance" color="green" /></div>
+      <div className="dashboard-grid"><section className="panel chart-panel"><div className="panel-heading"><div><h2>Campaign activity</h2><p>Recipients and confirmed WhatsApp deliveries by day</p></div><button className="icon-btn" onClick={() => setPage("Reports")} aria-label="Open reports"><ArrowUpRight size={17} /></button></div><div className="chart-legend"><span><i className="legend-dot violet-dot" />Recipients</span><span><i className="legend-dot orange-dot" />WhatsApp delivered</span><span className="chart-total"><b>{shortNumber(analytics.summary.recipients)}</b><small>recipients</small></span></div><PerformanceChart points={analytics.trends.map((point) => ({ date: point.date, primary: point.recipients, secondary: point.delivered }))} primaryLabel="Recipients" secondaryLabel="WhatsApp delivered" /></section>
+      <section className="panel channel-panel"><div className="panel-heading"><div><h2>Channel overview</h2><p>Saved campaign activity for {period.toLowerCase()}</p></div><button className="icon-btn" onClick={() => setPage("Reports")} aria-label="Open channel reports"><ArrowUpRight size={17} /></button></div>{(["Email", "SMS", "WhatsApp"] as const).map((name) => { const item = channelInfo(name); const icon = name === "Email" ? <Mail size={19} /> : name === "SMS" ? <MessageSquareText size={19} /> : <MessageCircle size={19} />; const tone = name === "Email" ? "mail-icon" : name === "SMS" ? "sms-icon" : "whatsapp-icon"; const rate = item?.deliveryRate; return <div key={name}><div className="channel-item"><div className={`channel-icon ${tone}`}>{icon}</div><div className="channel-info"><b>{name}</b><small>{number(item?.recipients ?? 0)} recipients</small></div><div className="channel-rate"><b>{rate === null || rate === undefined ? "—" : `${rate}%`}</b><small>{rate === null || rate === undefined ? "delivery tracking unavailable" : "delivery rate"}</small></div></div><div className="channel-track"><span className={name === "Email" ? "email-track" : name === "SMS" ? "sms-track" : "whatsapp-track"} style={{ width: `${rate ?? 0}%` }} /></div></div>; })}<div className="channel-foot"><span><i className="live-dot" />CRM API data</span><b>Updated {new Date(analytics.generatedAt).toLocaleTimeString()}</b></div></section></div>
+      <section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent campaigns</h2><p>Latest saved campaigns from your CRM.</p></div><button className="text-link" onClick={() => setPage("Email campaigns")}>View all campaigns <ArrowUpRight size={14} /></button></div>{campaigns.length ? <CampaignTable rows={campaigns.slice(0, 5)} /> : <div className="analytics-chart-empty">No campaigns have been saved yet.</div>}</section>
+    </> : <div className="analytics-state">No analytics are available.</div>}
+  </>;
 }

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import {
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   LoaderCircle,
   Mail,
@@ -11,6 +13,24 @@ import {
 } from "lucide-react";
 import type { Campaign } from "../models";
 import { Badge, PageHeading } from "../components/Shared";
+import { ActionMenu } from "../components/ActionMenu";
+
+const calendarTimeZone = "Africa/Lagos";
+const dateKey = (date: Date) => {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: calendarTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+const watToday = () => {
+  const [year, month, day] = dateKey(new Date()).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
+};
 
 export function ScheduledPreview({
   records,
@@ -26,24 +46,40 @@ export function ScheduledPreview({
   loading: boolean;
   error: string;
   reload: () => void;
-  notify: (s: string) => void;
+  notify: (s: string, kind?: "success" | "error" | "loading") => void;
   setModal: (s: string) => void;
   cancelScheduled: (campaign: Campaign) => Promise<void>;
   togglePause: (campaign: Campaign, paused: boolean) => Promise<void>;
 }) {
   const [calendar, setCalendar] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = watToday();
+    return new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1, 12),
+    );
+  });
   const [busyId, setBusyId] = useState("");
   const runAction = async (
     campaign: Campaign,
     action: (campaign: Campaign) => Promise<void>,
+    activity: string,
   ) => {
     if (busyId) return;
+    if (!campaign.id) {
+      notify(
+        `Campaign ${campaign.name} is not linked to a CRM record and cannot be updated.`,
+        "error",
+      );
+      return;
+    }
     setBusyId(campaign.id ?? campaign.name);
+    notify(`${activity} ${campaign.name}...`, "loading");
     try {
       await action(campaign);
     } catch (reason) {
       notify(
         `Could not update ${campaign.name}: ${reason instanceof Error ? reason.message : "API error"}`,
+        "error",
       );
     } finally {
       setBusyId("");
@@ -57,7 +93,7 @@ export function ScheduledPreview({
     .map((campaign) => ({
       ...campaign,
       when: campaign.scheduledAt
-        ? `${new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Lagos" }).format(new Date(campaign.scheduledAt))} WAT`
+        ? `${new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeStyle: "short", timeZone: calendarTimeZone }).format(new Date(campaign.scheduledAt))} WAT`
         : campaign.date,
     }))
     .sort(
@@ -65,18 +101,41 @@ export function ScheduledPreview({
         new Date(left.scheduledAt ?? 0).getTime() -
         new Date(right.scheduledAt ?? 0).getTime(),
     );
-  const days = [
-    ...Array.from({ length: 7 }, (_, offset) => {
-      const date = new Date();
-      date.setDate(date.getDate() + offset);
-      return date;
-    }),
-  ];
+  const nextScheduled = items.find(
+    (campaign) => campaign.status === "Scheduled",
+  );
+  const monthStart = new Date(
+    Date.UTC(
+      calendarMonth.getUTCFullYear(),
+      calendarMonth.getUTCMonth(),
+      1,
+      12,
+    ),
+  );
+  const gridStart = new Date(
+    Date.UTC(
+      monthStart.getUTCFullYear(),
+      monthStart.getUTCMonth(),
+      1 - monthStart.getUTCDay(),
+      12,
+    ),
+  );
+  const days = Array.from(
+    { length: 42 },
+    (_, offset) =>
+      new Date(
+        Date.UTC(
+          gridStart.getUTCFullYear(),
+          gridStart.getUTCMonth(),
+          gridStart.getUTCDate() + offset,
+          12,
+        ),
+      ),
+  );
   if (loading || error) {
     return (
       <>
         <PageHeading
-          eyebrow="SCHEDULED · LIVE"
           title="Scheduled campaigns"
           desc="Review and manage campaigns scheduled through the CRM API."
           action={
@@ -101,7 +160,7 @@ export function ScheduledPreview({
           ) : (
             <>
               <LoaderCircle className="spin" size={20} />
-              <b>Loading scheduled campaigns…</b>
+              <b>Loading scheduled campaigns...</b>
             </>
           )}
         </div>
@@ -111,7 +170,6 @@ export function ScheduledPreview({
   return (
     <>
       <PageHeading
-        eyebrow="SCHEDULED · LIVE"
         title="Scheduled campaigns"
         desc="Review and manage campaigns scheduled through the CRM API."
         action={
@@ -120,7 +178,7 @@ export function ScheduledPreview({
           </button>
         }
       />
-      {items.length > 0 && (
+      {nextScheduled && (
         <div className="scheduled-banner">
           <div className="schedule-calendar">
             <span>
@@ -128,41 +186,41 @@ export function ScheduledPreview({
                 month: "short",
                 timeZone: "Africa/Lagos",
               })
-                .format(new Date(items[0].scheduledAt ?? Date.now()))
+                .format(new Date(nextScheduled.scheduledAt ?? Date.now()))
                 .toUpperCase()}
             </span>
             <b>
               {new Intl.DateTimeFormat("en-NG", {
                 day: "2-digit",
                 timeZone: "Africa/Lagos",
-              }).format(new Date(items[0].scheduledAt ?? Date.now()))}
+              }).format(new Date(nextScheduled.scheduledAt ?? Date.now()))}
             </b>
             <small>
               {new Intl.DateTimeFormat("en-NG", {
                 weekday: "short",
                 timeZone: "Africa/Lagos",
               })
-                .format(new Date(items[0].scheduledAt ?? Date.now()))
+                .format(new Date(nextScheduled.scheduledAt ?? Date.now()))
                 .toUpperCase()}
             </small>
           </div>
           <div className="scheduled-message">
             <Badge tone="Scheduled">NEXT SCHEDULED</Badge>
-            <h2>{items[0].name}</h2>
-            <p>Scheduled campaign · {items[0].audience}.</p>
+            <h2>{nextScheduled.name}</h2>
+            <p>Scheduled campaign for {nextScheduled.audience}.</p>
             <div className="scheduled-details">
               <span>
-                {items[0].channel === "Email" ? (
+                {nextScheduled.channel === "Email" ? (
                   <Mail size={14} />
-                ) : items[0].channel === "WhatsApp" ? (
+                ) : nextScheduled.channel === "WhatsApp" ? (
                   <MessageCircle size={14} />
                 ) : (
                   <MessageSquareText size={14} />
                 )}{" "}
-                {items[0].channel}
+                {nextScheduled.channel}
               </span>
               <span>
-                <Clock3 size={14} /> {items[0].when}
+                <Clock3 size={14} /> {nextScheduled.when}
               </span>
             </div>
           </div>
@@ -171,10 +229,14 @@ export function ScheduledPreview({
       <div className="section-row">
         <div>
           <h2 className="section-title">
-            Upcoming <span className="light-count">{items.length}</span>
+            Upcoming{" "}
+            <span className="light-count">
+              {items.filter((item) => item.status === "Scheduled").length}
+            </span>
           </h2>
           <p className="section-subtitle">
-            Schedule times are shown in West Africa Time (UTC+1).
+            Schedule times are shown in West Africa Time (UTC+1). Paused
+            campaigns remain below so you can resume or cancel them.
           </p>
         </div>
         <button
@@ -185,35 +247,94 @@ export function ScheduledPreview({
         </button>
       </div>
       {calendar ? (
-        <div className="schedule-calendar-grid">
-          {days.map((day) => {
-            const events = items.filter(
-              (item) =>
-                item.scheduledAt &&
-                new Date(item.scheduledAt).toDateString() ===
-                  day.toDateString(),
-            );
-            return (
-              <div className="schedule-day" key={day.toISOString()}>
-                <b>
-                  {new Intl.DateTimeFormat("en-NG", {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                  }).format(day)}
+        <>
+          <div className="schedule-calendar-toolbar">
+            <button
+              className="icon-btn"
+              aria-label="Previous month"
+              onClick={() =>
+                setCalendarMonth(
+                  (month) =>
+                    new Date(
+                      Date.UTC(
+                        month.getUTCFullYear(),
+                        month.getUTCMonth() - 1,
+                        1,
+                        12,
+                      ),
+                    ),
+                )
+              }
+            >
+              <ChevronLeft size={17} />
+            </button>
+            <b>
+              {new Intl.DateTimeFormat("en-NG", {
+                month: "long",
+                year: "numeric",
+                timeZone: calendarTimeZone,
+              }).format(calendarMonth)}
+            </b>
+            <button
+              className="icon-btn"
+              aria-label="Next month"
+              onClick={() =>
+                setCalendarMonth(
+                  (month) =>
+                    new Date(
+                      Date.UTC(
+                        month.getUTCFullYear(),
+                        month.getUTCMonth() + 1,
+                        1,
+                        12,
+                      ),
+                    ),
+                )
+              }
+            >
+              <ChevronRight size={17} />
+            </button>
+          </div>
+          <div className="schedule-calendar-grid">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+              (weekday) => (
+                <b className="schedule-weekday" key={weekday}>
+                  {weekday}
                 </b>
-                {events.map((item) => (
-                  <div className="schedule-event" key={item.name}>
-                    <b>{item.name}</b>
-                    <small>
-                      {item.when.split(" · ")[1]} · {item.channel}
-                    </small>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+              ),
+            )}
+            {days.map((day) => {
+              const events = items.filter(
+                (item) =>
+                  item.scheduledAt &&
+                  dateKey(new Date(item.scheduledAt)) === dateKey(day),
+              );
+              const outsideMonth =
+                day.getUTCMonth() !== calendarMonth.getUTCMonth();
+              return (
+                <div
+                  className={`schedule-day${outsideMonth ? " outside-month" : ""}`}
+                  key={day.toISOString()}
+                >
+                  <b>
+                    {new Intl.DateTimeFormat("en-NG", {
+                      day: "numeric",
+                      timeZone: calendarTimeZone,
+                    }).format(day)}
+                  </b>
+                  {events.map((item) => (
+                    <div className="schedule-event" key={item.id ?? item.name}>
+                      <b>{item.name}</b>
+                      <small>
+                        {item.when} · {item.channel}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </>
       ) : (
         <section className="panel scheduled-list">
           {items.length === 0 ? (
@@ -249,28 +370,40 @@ export function ScheduledPreview({
                   {item.when}
                 </div>
                 <Badge tone={item.status}>{item.status}</Badge>
-                <button
-                  className="btn secondary"
-                  disabled={busyId === (item.id ?? item.name)}
-                  onClick={() =>
-                    void runAction(item, (campaign) =>
-                      togglePause(campaign, item.status !== "Paused"),
-                    )
-                  }
-                >
-                  {busyId === (item.id ?? item.name)
-                    ? "Saving..."
-                    : item.status === "Paused"
-                      ? "Resume"
-                      : "Pause"}
-                </button>
-                <button
-                  className="btn secondary cancel-schedule"
-                  disabled={busyId === (item.id ?? item.name)}
-                  onClick={() => void runAction(item, cancelScheduled)}
-                >
-                  Cancel schedule
-                </button>
+                <ActionMenu
+                  label={item.name}
+                  items={[
+                    {
+                      label:
+                        busyId === (item.id ?? item.name)
+                          ? "Saving..."
+                          : item.status === "Paused"
+                            ? "Resume schedule"
+                            : "Pause schedule",
+                      disabled: Boolean(busyId),
+                      onSelect: () =>
+                        void runAction(
+                          item,
+                          (campaign) =>
+                            togglePause(campaign, item.status !== "Paused"),
+                          item.status === "Paused"
+                            ? "Resuming schedule for:"
+                            : "Pausing schedule for:",
+                        ),
+                    },
+                    {
+                      label: "Cancel schedule",
+                      danger: true,
+                      disabled: Boolean(busyId),
+                      onSelect: () =>
+                        void runAction(
+                          item,
+                          cancelScheduled,
+                          "Cancelling schedule for:",
+                        ),
+                    },
+                  ]}
+                />
               </article>
             ))
           )}

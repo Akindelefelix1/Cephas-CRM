@@ -38,7 +38,7 @@ export function CampaignPageFunctional({
   error: string;
   reload: () => void;
   setModal: (s: string) => void;
-  notify: (s: string) => void;
+  notify: (s: string, kind?: "success" | "error" | "loading") => void;
   recordAudit: (activity: string, details: string, eventType: string) => void;
   requestApproval: (campaign: Campaign) => Promise<void>;
   approveCampaign: (campaign: Campaign) => Promise<void>;
@@ -59,14 +59,24 @@ export function CampaignPageFunctional({
   const runAction = async (
     campaign: Campaign,
     action: (campaign: Campaign) => Promise<void>,
+    activity: string,
   ) => {
     if (busyId) return;
+    if (!campaign.id) {
+      notify(
+        `Campaign ${campaign.name} is not linked to a CRM record and cannot be updated.`,
+        "error",
+      );
+      return;
+    }
     setBusyId(campaign.id ?? campaign.name);
+    notify(`${activity} ${campaign.name}...`, "loading");
     try {
       await action(campaign);
     } catch (reason) {
       notify(
         `Could not update ${campaign.name}: ${reason instanceof Error ? reason.message : "API error"}`,
+        "error",
       );
       reload();
     } finally {
@@ -270,17 +280,29 @@ export function CampaignPageFunctional({
           <CampaignTable
             rows={rows}
             onRequestApproval={(campaign) =>
-              void runAction(campaign, requestApproval)
+              void runAction(
+                campaign,
+                requestApproval,
+                "Submitting for approval:",
+              )
             }
-            onApprove={(campaign) => void runAction(campaign, approveCampaign)}
+            onApprove={(campaign) =>
+              void runAction(campaign, approveCampaign, "Approving campaign:")
+            }
             onSchedule={(campaign) =>
-              void runAction(campaign, scheduleCampaign)
+              void runAction(campaign, scheduleCampaign, "Scheduling campaign:")
             }
             onEdit={editCampaign}
-            onSend={
-              (campaign) => void runAction(campaign, sendCampaign)
+            onSend={(campaign) =>
+              void runAction(campaign, sendCampaign, "Sending campaign:")
             }
-            onRefreshDelivery={(campaign) => void runAction(campaign, refreshWhatsAppDelivery)}
+            onRefreshDelivery={(campaign) =>
+              void runAction(
+                campaign,
+                refreshWhatsAppDelivery,
+                "Refreshing delivery status for:",
+              )
+            }
             onDuplicate={duplicateCampaign}
             busyId={busyId}
           />

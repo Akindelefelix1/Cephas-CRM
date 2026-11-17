@@ -2806,19 +2806,59 @@ tbody tr:hover {
   bottom: 22px;
   left: 50%;
   transform: translateX(-50%);
-  background: #292642;
-  color: white;
-  border-radius: 9px;
-  padding: 11px 15px;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 28px));
+  background: #fff;
+  color: #38364b;
+  border: 1px solid #e9e7f1;
+  border-radius: 12px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  box-shadow: 0 6px 24px #17132e2e;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 10px 34px #17132e20;
   animation: toast-in 0.2s ease;
 }
-.toast svg {
-  color: #7fdeb2;
+.toast > span {
+  overflow-wrap: anywhere;
+}
+.toast-success > svg {
+  color: #219463;
+  flex: 0 0 auto;
+}
+.toast-error {
+  border-color: #f0d5d2;
+  background: #fff8f7;
+}
+.toast-error > svg {
+  color: #c44e4b;
+  flex: 0 0 auto;
+}
+.toast-loading {
+  border-color: #ded9fb;
+  background: #fbfaff;
+}
+.toast-loading > svg {
+  color: #6953d1;
+  flex: 0 0 auto;
+}
+.toast-dismiss {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  margin-left: 3px;
+  border: 0;
+  border-radius: 6px;
+  color: #77758a;
+  background: transparent;
+  cursor: pointer;
+}
+.toast-dismiss:hover {
+  background: #f0eff5;
 }
 @keyframes toast-in {
   from {
@@ -4656,6 +4696,21 @@ tbody tr:hover {
   overflow: auto;
   padding-bottom: 5px;
 }
+.schedule-calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 6px 0 12px;
+  color: #454359;
+  font-size: 13px;
+}
+.schedule-weekday {
+  padding: 5px 8px;
+  color: #8d8b9e;
+  font-size: 10px;
+  text-align: center;
+}
 .condition-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 26px;
@@ -4686,6 +4741,12 @@ tbody tr:hover {
   border: 1px solid #ecebf2;
   border-radius: 9px;
   padding: 10px;
+}
+.schedule-day.outside-month {
+  background: #f9f9fc;
+}
+.schedule-day.outside-month > b {
+  color: #b9b7c5;
 }
 .schedule-day > b {
   font-size: 9px;
@@ -5833,3 +5894,27 @@ tbody tr:hover {
     width: 100%;
   }
 }
+.analytics-state,
+.analytics-chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 150px;
+  padding: 24px;
+  color: #77758f;
+  text-align: center;
+}
+.analytics-state.error {
+  border: 1px solid #f0c8c8;
+  border-radius: 14px;
+  background: #fff8f8;
+  color: #8f4242;
+}
+.analytics-state.error span { max-width: 680px; overflow-wrap: anywhere; }
+.analytics-chart-empty { min-height: 180px; }
+.tracking-note,
+.analytics-updated { display: block; margin: 6px 0 12px; color: #89879b; font-size: 11px; }
+.report-detail-grid { margin-top: 16px; }
+.campaign-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #7460e7; }

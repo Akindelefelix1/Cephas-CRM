@@ -4,7 +4,8 @@ import {
   ArrowUpRight,
   Bell,
   CalendarDays,
-  Check,
+  CircleCheck,
+  CircleX,
   ChevronLeft,
   CircleHelp,
   ContactRound,
@@ -24,10 +25,12 @@ import {
   Users,
   X,
 } from "lucide-react";
+
 import {
   contactFromApi,
   crmApi,
   type ApiCampaign,
+  type ApiAnalytics,
   type ApiContact,
 } from "./api";
 import type {
@@ -55,6 +58,9 @@ import {
   deletePhraseMatches,
 } from "./components/Shared";
 import { FeatureErrorBoundary } from "./components/FeatureErrorBoundary";
+
+type ToastKind = "success" | "error" | "loading";
+type ToastNotice = { message: string; kind: ToastKind };
 
 const ContactsListPage = lazy(() =>
   import("./pages/ContactsPage").then((module) => ({
@@ -251,6 +257,10 @@ export function CRMApp({
     [campaignsLoading, setCampaignsLoading] = useState(true),
     [campaignsError, setCampaignsError] = useState(""),
     [campaignsReloadKey, setCampaignsReloadKey] = useState(0),
+    [analytics, setAnalytics] = useState<ApiAnalytics | null>(null),
+    [analyticsLoading, setAnalyticsLoading] = useState(true),
+    [analyticsError, setAnalyticsError] = useState(""),
+    [analyticsReloadKey, setAnalyticsReloadKey] = useState(0),
     [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>([]),
     [templatesLoading, setTemplatesLoading] = useState(true),
     [templatesError, setTemplatesError] = useState(""),
@@ -285,7 +295,7 @@ export function CRMApp({
     [bulkDeletePhrase, setBulkDeletePhrase] = useState(""),
     [deletingContact, setDeletingContact] = useState(false),
     [deletingContacts, setDeletingContacts] = useState(false),
-    [toast, setToast] = useState(""),
+    [toast, setToast] = useState<ToastNotice | null>(null),
     [modal, setModal] = useState(() =>
       normalizePath(window.location.pathname).toLowerCase() === "/contacts/new"
         ? "add"
@@ -302,6 +312,19 @@ export function CRMApp({
     [mobile, setMobile] = useState(false),
     [sidebarCollapsed, setSidebarCollapsed] = useState(false),
     [period, setPeriod] = useState("Last 30 days");
+  useEffect(() => {
+    let active = true;
+    const days = period === "Last 7 days" ? 7 : period === "Last 90 days" ? 90 : 30;
+    setAnalyticsLoading(true);
+    setAnalyticsError("");
+    crmApi.getAnalytics(days)
+      .then((report) => { if (active) setAnalytics(report); })
+      .catch((error: unknown) => {
+        if (active) setAnalyticsError(error instanceof Error ? error.message : "Could not load analytics from the CRM API.");
+      })
+      .finally(() => { if (active) setAnalyticsLoading(false); });
+    return () => { active = false; };
+  }, [period, analyticsReloadKey, campaignsReloadKey, contactsReloadKey, campaignRecords, contacts]);
   useEffect(() => {
     let active = true;
     setContactsLoading(true);
@@ -399,13 +422,25 @@ export function CRMApp({
     let active = true;
     setTemplatesLoading(true);
     setTemplatesError("");
-    crmApi.listTemplates()
-      .then((rows) => { if (active) setTemplateDrafts(rows.map(templateFromApi)); })
-      .catch((error: unknown) => {
-        if (active) setTemplatesError(error instanceof Error ? error.message : "Could not load templates from the CRM API");
+    crmApi
+      .listTemplates()
+      .then((rows) => {
+        if (active) setTemplateDrafts(rows.map(templateFromApi));
       })
-      .finally(() => { if (active) setTemplatesLoading(false); });
-    return () => { active = false; };
+      .catch((error: unknown) => {
+        if (active)
+          setTemplatesError(
+            error instanceof Error
+              ? error.message
+              : "Could not load templates from the CRM API",
+          );
+      })
+      .finally(() => {
+        if (active) setTemplatesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [templatesReloadKey]);
   const toApiContact = (
     contact: Contact,
@@ -469,12 +504,28 @@ export function CRMApp({
   useEffect(() => {
     setContactsPage((current) => Math.min(current, pageCount - 1));
   }, [pageCount]);
-  const notify = (s: string) => {
+  const notify = (s: string, requestedKind?: ToastKind) => {
     if (toastTimer.current !== undefined) {
       window.clearTimeout(toastTimer.current);
+      toastTimer.current = undefined;
     }
-    setToast(s);
-    toastTimer.current = window.setTimeout(() => setToast(""), 2600);
+    const kind =
+      requestedKind ??
+      (/^(Could not|Unable to|Failed to|Error:|One or more|Some selected|This .* (?:is not|already|has no|are missing))/i.test(
+        s,
+      )
+        ? "error"
+        : "success");
+    setToast({ message: s, kind });
+    if (kind !== "loading") {
+      toastTimer.current = window.setTimeout(
+        () => {
+          setToast(null);
+          toastTimer.current = undefined;
+        },
+        kind === "error" ? 7000 : 4000,
+      );
+    }
   };
   const recordAudit = (activity: string, details: string, eventType: string) =>
     setAuditEvents((rows) => [
@@ -642,6 +693,7 @@ export function CRMApp({
     if (duplicate) {
       setPendingDuplicate({ existing: duplicate, incoming: contact });
       setModal("");
+      notify(`Review possible duplicate contact: ${duplicate.name}`, "error");
       return;
     }
     try {
@@ -687,13 +739,14 @@ export function CRMApp({
         sourceId: activeContact?.id,
       });
       setModal("");
+      notify(`Review possible duplicate contact: ${duplicate.name}`, "error");
       return;
     }
     const existingContact = contacts.find(
       (item) => item.id === activeContact?.id,
     );
     if (!existingContact?.id) {
-      notify("This sample contact is not stored in the CRM yet");
+      notify("This sample contact is not stored in the CRM yet", "error");
       return;
     }
     let saved: ApiContact;
@@ -801,19 +854,23 @@ export function CRMApp({
         existing.whatsappStatus === "Unsubscribed" ||
         incoming.whatsappStatus === "Unsubscribed"
           ? "Unsubscribed"
-          : existing.whatsappStatus === "Pending" || incoming.whatsappStatus === "Pending"
+          : existing.whatsappStatus === "Pending" ||
+              incoming.whatsappStatus === "Pending"
             ? "Pending"
-            : existing.whatsappStatus === "Subscribed" && incoming.whatsappStatus === "Subscribed"
+            : existing.whatsappStatus === "Subscribed" &&
+                incoming.whatsappStatus === "Subscribed"
               ? "Subscribed"
               : "Pending",
     };
     if (!existing.id) {
       notify(
         "The matching contact has no CRM record ID. Refresh contacts and try again.",
+        "error",
       );
       return;
     }
     setDuplicateAction("merge");
+    notify(`Merging ${incoming.name} with ${existing.name}...`, "loading");
     try {
       const saved = await crmApi.mergeContact(
         existing.id,
@@ -844,6 +901,7 @@ export function CRMApp({
     } catch (error) {
       notify(
         `Could not merge contact records: ${error instanceof Error ? error.message : "API error"}`,
+        "error",
       );
       return;
     } finally {
@@ -871,6 +929,10 @@ export function CRMApp({
       return;
     }
     setDuplicateAction("separate");
+    notify(
+      `Saving ${pendingDuplicate.incoming.name} as a separate contact...`,
+      "loading",
+    );
     try {
       const saved = await crmApi.createContact(
         toApiContact(pendingDuplicate.incoming),
@@ -886,6 +948,7 @@ export function CRMApp({
     } catch (error) {
       notify(
         `Could not save separate contact: ${error instanceof Error ? error.message : "API error"}`,
+        "error",
       );
       return;
     } finally {
@@ -907,6 +970,7 @@ export function CRMApp({
       return;
     }
     setDeletingContact(true);
+    notify(`Deleting contact ${contact.name}...`, "loading");
     try {
       await crmApi.deleteContact(contact.id);
       setContacts((current) =>
@@ -931,6 +995,7 @@ export function CRMApp({
     } catch (error) {
       notify(
         `Could not delete contact: ${error instanceof Error ? error.message : "API error"}`,
+        "error",
       );
     } finally {
       setDeletingContact(false);
@@ -952,6 +1017,7 @@ export function CRMApp({
       return;
     }
     setDeletingContacts(true);
+    notify(`Deleting ${targets.length} selected contacts...`, "loading");
     try {
       const result = await crmApi.deleteContacts(
         targets.map((contact) => contact.id!),
@@ -975,6 +1041,7 @@ export function CRMApp({
     } catch (error) {
       notify(
         `Could not delete selected contacts: ${error instanceof Error ? error.message : "API error"}`,
+        "error",
       );
     } finally {
       setDeletingContacts(false);
@@ -997,8 +1064,20 @@ export function CRMApp({
     },
     campaignId?: string | null,
     senderId = "",
-    whatsappConfig?: { template: string; sender: string; mergeInfo: Record<string, string> },
+    whatsappConfig?: {
+      template: string;
+      sender: string;
+      mergeInfo: Record<string, string>;
+    },
   ) => {
+    notify(
+      campaignId
+        ? `Saving changes to ${name}...`
+        : scheduledAt
+          ? `Scheduling ${name}...`
+          : `Saving ${channel} campaign ${name}...`,
+      "loading",
+    );
     let saved: Campaign;
     let scheduleFailure = "";
     if (channel === "Email") {
@@ -1025,7 +1104,9 @@ export function CRMApp({
           result.lastError || "Zoho Campaigns could not schedule the campaign";
     } else if (channel === "SMS") {
       const match = message.match(/\n\nSender ID: ([A-Za-z0-9]{3,11})$/);
-      const body = message.replace(/\n\nSender ID: [A-Za-z0-9]{3,11}$/, "").trim();
+      const body = message
+        .replace(/\n\nSender ID: [A-Za-z0-9]{3,11}$/, "")
+        .trim();
       const input = {
         name,
         channel: "SMS" as const,
@@ -1106,6 +1187,7 @@ export function CRMApp({
           : status === "Scheduled"
             ? `${channel} campaign saved and scheduled with Zoho Campaigns`
             : `${channel} campaign draft saved`,
+      scheduleFailure ? "error" : "success",
     );
   };
   const updateCampaignRecord = (updated: ApiCampaign) => {
@@ -1159,6 +1241,7 @@ export function CRMApp({
           : campaign.channel === "WhatsApp"
             ? `${campaign.name}: Zoho CPaaS queued messages for ${result.delivery.sent} opted-in contacts. Refresh delivery to check receipts.`
             : `${campaign.name} submitted to Zoho Campaigns for ${result.delivery.sent} subscribed contacts`,
+      result.delivery.failed ? "error" : "success",
     );
   };
   const refreshWhatsAppDelivery = async (campaign: Campaign) => {
@@ -1185,7 +1268,8 @@ export function CRMApp({
     notify(
       delivery.errors.length
         ? `Delivery status refreshed with ${delivery.errors.length} lookup error(s).`
-        : `${delivery.delivered} delivered · ${delivery.pending} pending · ${delivery.failed} failed`,
+        : `${delivery.delivered} delivered, ${delivery.pending} pending, ${delivery.failed} failed`,
+      delivery.errors.length ? "error" : "success",
     );
   };
   const duplicateCampaign = (campaign: Campaign) => {
@@ -1241,17 +1325,25 @@ export function CRMApp({
           : "whatsapp",
     );
     recordAudit("Started campaign duplicate", campaign.name, "Campaign draft");
+    notify(`Duplicate draft ready to review: ${copyName}`);
   };
   const editCampaign = (campaign: Campaign) => {
     if (!campaign.id || campaign.status !== "Draft") return;
-    const subject = campaign.channel === "Email"
-      ? campaign.message?.match(/^Subject: ([^\n]*)/)?.[1] ?? ""
-      : campaign.channel === "SMS"
-        ? campaign.message?.match(/\n\nSender ID: ([A-Za-z0-9]{3,11})$/)?.[1] ?? ""
+    const subject =
+      campaign.channel === "Email"
+        ? (campaign.message?.match(/^Subject: ([^\n]*)/)?.[1] ?? "")
+        : campaign.channel === "SMS"
+          ? (campaign.message?.match(
+              /\n\nSender ID: ([A-Za-z0-9]{3,11})$/,
+            )?.[1] ?? "")
+          : "";
+    const body =
+      campaign.channel === "SMS"
+        ? (campaign.message ?? "").replace(
+            /\n\nSender ID: [A-Za-z0-9]{3,11}$/,
+            "",
+          )
         : "";
-    const body = campaign.channel === "SMS"
-      ? (campaign.message ?? "").replace(/\n\nSender ID: [A-Za-z0-9]{3,11}$/, "")
-      : "";
     setCampaignTemplateSeed({
       name: campaign.name,
       channel: campaign.channel,
@@ -1268,7 +1360,16 @@ export function CRMApp({
     });
     setCampaignAudienceSeed(campaign.includedAudiences?.join(", ") ?? "");
     setCampaignEditId(campaign.id);
-    setModal(campaign.channel === "Email" ? "email" : campaign.channel === "SMS" ? "sms" : "whatsapp");
+    setModal(
+      campaign.channel === "Email"
+        ? "email"
+        : campaign.channel === "SMS"
+          ? "sms"
+          : "whatsapp",
+    );
+    notify(
+      `Editing ${campaign.channel.toLowerCase()} campaign: ${campaign.name}`,
+    );
   };
   const cancelScheduled = async (campaign: Campaign) => {
     if (!campaign.id) return;
@@ -1316,6 +1417,7 @@ export function CRMApp({
     ) {
       notify(
         "Some selected contacts are not synced with the CRM API. Refresh contacts and retry.",
+        "error",
       );
       return;
     }
@@ -1613,8 +1715,13 @@ export function CRMApp({
           : "email",
     );
     recordAudit("Used campaign template", template.name, "Template used");
+    notify(`Campaign draft started from template: ${template.name}`);
   };
   const saveTemplateDraft = async (template: TemplateDraft) => {
+    notify(
+      `${template.id ? "Saving changes to" : "Creating"} template ${template.name}...`,
+      "loading",
+    );
     const input = {
       name: template.name,
       channel: template.channel,
@@ -1631,9 +1738,11 @@ export function CRMApp({
       ? await crmApi.updateTemplate(template.id, input)
       : await crmApi.createTemplate(input);
     const savedDraft = templateFromApi(saved);
-    setTemplateDrafts((current) => template.id
-      ? current.map((item) => item.id === template.id ? savedDraft : item)
-      : [...current, savedDraft].sort((a, b) => a.name.localeCompare(b.name)));
+    setTemplateDrafts((current) =>
+      template.id
+        ? current.map((item) => (item.id === template.id ? savedDraft : item))
+        : [...current, savedDraft].sort((a, b) => a.name.localeCompare(b.name)),
+    );
     const { name, channel } = template;
     recordAudit(
       template.id ? "Updated template" : "Created template",
@@ -1642,14 +1751,33 @@ export function CRMApp({
     );
     setModal("");
     setCampaignTemplateSeed(null);
-    notify(template.id ? "Template updated" : "Template created");
+    notify(
+      template.id
+        ? `Template updated: ${template.name}`
+        : `Template created: ${template.name}`,
+    );
   };
   const deleteTemplate = async (template: TemplateDraft) => {
-    if (!template.id) return;
-    await crmApi.deleteTemplate(template.id);
-    setTemplateDrafts((current) => current.filter((item) => item.id !== template.id));
-    recordAudit("Deleted template", template.name, "Template");
-    notify(`${template.name} deleted`);
+    if (!template.id) {
+      const error = `Template ${template.name} has no CRM record ID and cannot be deleted.`;
+      notify(error, "error");
+      throw new Error(error);
+    }
+    notify(`Deleting template ${template.name}...`, "loading");
+    try {
+      await crmApi.deleteTemplate(template.id);
+      setTemplateDrafts((current) =>
+        current.filter((item) => item.id !== template.id),
+      );
+      recordAudit("Deleted template", template.name, "Template");
+      notify(`${template.name} deleted`);
+    } catch (error) {
+      notify(
+        `Could not delete template ${template.name}: ${error instanceof Error ? error.message : "API error"}`,
+        "error",
+      );
+      throw error;
+    }
   };
   const editTemplate = (template: TemplateDraft) => {
     setCampaignTemplateSeed(template);
@@ -1660,8 +1788,16 @@ export function CRMApp({
     if (!template.id) return;
     try {
       const updated = await crmApi.useTemplate(template.id);
-      setTemplateDrafts((current) => current.map((item) => item.id === updated.id ? { ...item, useCount: updated.useCount } : item));
-    } catch { /* Campaign setup remains available even if usage tracking is unavailable. */ }
+      setTemplateDrafts((current) =>
+        current.map((item) =>
+          item.id === updated.id
+            ? { ...item, useCount: updated.useCount }
+            : item,
+        ),
+      );
+    } catch {
+      /* Campaign setup remains available even if usage tracking is unavailable. */
+    }
   };
   const exportCsv = (rows: Contact[] = filtered) => {
     const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -1811,7 +1947,10 @@ export function CRMApp({
             "email_consent_status",
           ),
           smsConsentAt = index("sms_consent_status", "sms_opt_in_status"),
-          whatsappConsentAt = index("whatsapp_consent_status", "whatsapp_opt_in_status");
+          whatsappConsentAt = index(
+            "whatsapp_consent_status",
+            "whatsapp_opt_in_status",
+          );
         const phoneAt = index("phone", "phone_number", "mobile"),
           organizationAt = index("organization", "organisation", "company"),
           interestsAt = index("interests", "interest"),
@@ -1883,11 +2022,16 @@ export function CRMApp({
                 ? "Unsubscribed"
                 : "Pending";
           const whatsappConsentValue =
-            whatsappConsentAt >= 0 ? values[whatsappConsentAt]?.toLowerCase() : "";
+            whatsappConsentAt >= 0
+              ? values[whatsappConsentAt]?.toLowerCase()
+              : "";
           const whatsappStatus: Contact["status"] =
-            whatsappConsentValue === "subscribed" || whatsappConsentValue === "consented" || whatsappConsentValue === "opted_in"
+            whatsappConsentValue === "subscribed" ||
+            whatsappConsentValue === "consented" ||
+            whatsappConsentValue === "opted_in"
               ? "Subscribed"
-              : whatsappConsentValue === "unsubscribed" || whatsappConsentValue === "opted_out"
+              : whatsappConsentValue === "unsubscribed" ||
+                  whatsappConsentValue === "opted_out"
                 ? "Unsubscribed"
                 : "Pending";
           return [
@@ -1975,6 +2119,7 @@ export function CRMApp({
             setModal("");
             notify(
               `${persistedPartial.length} contacts imported before the import stopped: ${error instanceof Error ? error.message : "API error"}. You can retry the file; existing emails will be skipped.`,
+              "error",
             );
             return;
           }
@@ -2152,7 +2297,7 @@ export function CRMApp({
               }
             >
               {page === "Dashboard" && (
-                <Dashboard setPage={go} period={period} setPeriod={setPeriod} />
+                <Dashboard setPage={go} period={period} setPeriod={setPeriod} accountName={account.name || account.email} analytics={analytics} loading={analyticsLoading} error={analyticsError} retry={() => setAnalyticsReloadKey((key) => key + 1)} campaigns={campaignRecords} />
               )}
               {page === "Contacts" && (
                 <ContactsListPage
@@ -2424,6 +2569,11 @@ export function CRMApp({
                   period={period}
                   setPeriod={setPeriod}
                   setPage={go}
+                  analytics={analytics}
+                  loading={analyticsLoading}
+                  error={analyticsError}
+                  retry={() => setAnalyticsReloadKey((key) => key + 1)}
+                  campaigns={campaignRecords}
                 />
               )}
               {page === "Audit log" && (
@@ -2703,9 +2853,28 @@ export function CRMApp({
         </div>
       )}
       {toast && (
-        <div className="toast">
-          <Check size={16} />
-          {toast}
+        <div
+          className={`toast toast-${toast.kind}`}
+          role={toast.kind === "error" ? "alert" : "status"}
+          aria-live={toast.kind === "error" ? "assertive" : "polite"}
+        >
+          {toast.kind === "loading" ? (
+            <LoaderCircle size={17} className="auth-spinner" />
+          ) : toast.kind === "error" ? (
+            <CircleX size={17} />
+          ) : (
+            <CircleCheck size={17} />
+          )}
+          <span>{toast.message}</span>
+          {toast.kind !== "loading" && (
+            <button
+              className="toast-dismiss"
+              aria-label="Dismiss notification"
+              onClick={() => setToast(null)}
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
       )}
     </div>

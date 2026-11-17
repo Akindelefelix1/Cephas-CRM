@@ -32,7 +32,7 @@ export function ContactProfile({
   contact: Contact;
   activity: AuditEvent[];
   onBack: () => void;
-  notify: (message: string) => void;
+  notify: (message: string, kind?: "success" | "error" | "loading") => void;
   onEmailSent: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -78,6 +78,7 @@ export function ContactProfile({
     }
     setEmailSending(true);
     setEmailError("");
+    notify(`Sending email to ${contact.email}...`, "loading");
     try {
       await crmApi.sendContactEmail(contact.id, {
         subject: emailSubject,
@@ -90,7 +91,7 @@ export function ContactProfile({
       const message =
         error instanceof Error ? error.message : "Could not send email";
       setEmailError(message);
-      notify(`Could not send email: ${message}`);
+      notify(`Could not send email: ${message}`, "error");
     } finally {
       setEmailSending(false);
     }

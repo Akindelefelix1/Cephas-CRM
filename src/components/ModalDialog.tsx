@@ -91,7 +91,7 @@ export function ModalDialog({
   saveTemplate: (template: TemplateDraft) => Promise<void>;
   importContacts: (file: File) => Promise<void>;
   recordAudit: (activity: string, details: string, eventType: string) => void;
-  notify: (s: string) => void;
+  notify: (s: string, kind?: "success" | "error" | "loading") => void;
   initialAudience: string;
   audienceOptions: { name: string; detail: string }[];
   initialTemplate: TemplateDraft | null;
@@ -162,12 +162,18 @@ export function ModalDialog({
     ),
     [sendingTest, setSendingTest] = useState(false),
     [senderId, setSenderId] = useState(""),
-    [whatsappTemplate, setWhatsappTemplate] = useState(initialTemplate?.whatsappTemplate ?? ""),
-    [whatsappSender, setWhatsappSender] = useState(initialTemplate?.whatsappSender ?? ""),
+    [whatsappTemplate, setWhatsappTemplate] = useState(
+      initialTemplate?.whatsappTemplate ?? "",
+    ),
+    [whatsappSender, setWhatsappSender] = useState(
+      initialTemplate?.whatsappSender ?? "",
+    ),
     [whatsappMergeInfoText, setWhatsappMergeInfoText] = useState(
       JSON.stringify(initialTemplate?.whatsappMergeInfo ?? {}, null, 2),
     ),
-    [whatsappConfigured, setWhatsappConfigured] = useState<boolean | null>(null),
+    [whatsappConfigured, setWhatsappConfigured] = useState<boolean | null>(
+      null,
+    ),
     [objective, setObjective] = useState(initialTemplate?.objective ?? ""),
     [segmentType, setSegmentType] = useState<
       "Dynamic segment" | "Static group"
@@ -199,17 +205,26 @@ export function ModalDialog({
   }, [initialAudienceRecord]);
   useEffect(() => {
     if (initialTemplate) {
-      setCampaignName(kind === "template" ? initialTemplate.name : campaignEditId ? initialTemplate.name : `${initialTemplate.name} campaign`);
+      setCampaignName(
+        kind === "template"
+          ? initialTemplate.name
+          : campaignEditId
+            ? initialTemplate.name
+            : `${initialTemplate.name} campaign`,
+      );
       setTemplateChannel(initialTemplate.channel);
       setSubject(initialTemplate.subject);
-      if (kind === "sms" && initialTemplate.subject) setSenderId(initialTemplate.subject);
+      if (kind === "sms" && initialTemplate.subject)
+        setSenderId(initialTemplate.subject);
       setObjective(initialTemplate.objective ?? "");
       setExcludedAudiences(initialTemplate.excludedAudiences ?? []);
       setExcludedEmails(initialTemplate.excludedContacts ?? []);
       setMessage(initialTemplate.body);
       setWhatsappTemplate(initialTemplate.whatsappTemplate ?? "");
       setWhatsappSender(initialTemplate.whatsappSender ?? "");
-      setWhatsappMergeInfoText(JSON.stringify(initialTemplate.whatsappMergeInfo ?? {}, null, 2));
+      setWhatsappMergeInfoText(
+        JSON.stringify(initialTemplate.whatsappMergeInfo ?? {}, null, 2),
+      );
       setEmailBlocks(
         initialTemplate.emailBlocks ?? [
           {
@@ -228,16 +243,19 @@ export function ModalDialog({
       .getWhatsAppProviderStatus()
       .then((status) => {
         setWhatsappConfigured(status.configured);
-        if (status.sender) setWhatsappSender((current) => current || status.sender!);
+        if (status.sender)
+          setWhatsappSender((current) => current || status.sender!);
       })
       .catch(() => setWhatsappConfigured(false));
   }, [kind]);
   useEffect(() => {
-    if (kind !== "sms" && !(kind === "template" && templateChannel === "SMS")) return;
+    if (kind !== "sms" && !(kind === "template" && templateChannel === "SMS"))
+      return;
     crmApi
       .getSmsProviderStatus()
       .then((status) => {
-        if (status.senderId) setSenderId((current) => current || status.senderId!);
+        if (status.senderId)
+          setSenderId((current) => current || status.senderId!);
       })
       .catch(() => undefined);
   }, [kind, templateChannel]);
@@ -277,9 +295,13 @@ export function ModalDialog({
                 ? "Edit template"
                 : "Create a template"
               : kind === "sms"
-                ? campaignEditId ? "Edit SMS campaign" : "Create an SMS campaign"
+                ? campaignEditId
+                  ? "Edit SMS campaign"
+                  : "Create an SMS campaign"
                 : kind === "whatsapp"
-                  ? campaignEditId ? "Edit WhatsApp campaign" : "Create a WhatsApp campaign"
+                  ? campaignEditId
+                    ? "Edit WhatsApp campaign"
+                    : "Create a WhatsApp campaign"
                   : campaignEditId
                     ? "Edit email campaign"
                     : "Create an email campaign";
@@ -357,6 +379,10 @@ export function ModalDialog({
         return;
       }
       setSaving(true);
+      notify(
+        `${kind === "edit-contact" ? "Saving changes to" : "Adding"} ${name || "contact"}...`,
+        "loading",
+      );
       try {
         await saveContact({
           name,
@@ -395,6 +421,12 @@ export function ModalDialog({
           date: "Nov 13, 2026",
         });
       } catch (error) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Could not save this contact.",
+          "error",
+        );
         setValidation(
           error instanceof Error
             ? error.message
@@ -408,9 +440,16 @@ export function ModalDialog({
     if (kind === "import") {
       if (file) {
         setSaving(true);
+        notify(`Importing ${file.name}...`, "loading");
         try {
           await importContacts(file);
         } catch (error) {
+          notify(
+            error instanceof Error
+              ? error.message
+              : "Could not import this file.",
+            "error",
+          );
           setValidation(
             error instanceof Error
               ? error.message
@@ -431,7 +470,9 @@ export function ModalDialog({
       }
       if (
         campaignNames.some(
-          (name) => name.toLowerCase() === campaignName.trim().toLowerCase() && !campaignEditId,
+          (name) =>
+            name.toLowerCase() === campaignName.trim().toLowerCase() &&
+            !campaignEditId,
         )
       ) {
         setValidation(
@@ -449,33 +490,48 @@ export function ModalDialog({
               (block) => block.type !== "divider" && block.content.trim(),
             )
           : kind === "whatsapp"
-            ? Boolean(whatsappTemplate.trim() && /^\+\d{8,19}$/.test(whatsappSender.trim()))
+            ? Boolean(
+                whatsappTemplate.trim() &&
+                /^\+\d{8,19}$/.test(whatsappSender.trim()),
+              )
             : Boolean(message.trim());
       if (!hasContent) {
-        setValidation(kind === "whatsapp"
-          ? "Enter a Zoho CPaaS template key or alias and a WhatsApp sender number."
-          : "Add message content before saving this draft.");
+        setValidation(
+          kind === "whatsapp"
+            ? "Enter a Zoho CPaaS template key or alias and a WhatsApp sender number."
+            : "Add message content before saving this draft.",
+        );
         return;
       }
       let whatsappMergeInfo: Record<string, string> = {};
       if (kind === "whatsapp") {
         try {
           const parsed: unknown = JSON.parse(whatsappMergeInfoText || "{}");
-          if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" ||
-              Object.values(parsed).some((value) => typeof value !== "string"))
+          if (
+            !parsed ||
+            Array.isArray(parsed) ||
+            typeof parsed !== "object" ||
+            Object.values(parsed).some((value) => typeof value !== "string")
+          )
             throw new Error("Use a JSON object whose values are strings.");
           whatsappMergeInfo = parsed as Record<string, string>;
         } catch {
-          setValidation("Template variable mapping must be valid JSON with string values, for example {\"customer_name\":\"{{first_name}}\"}.");
+          setValidation(
+            'Template variable mapping must be valid JSON with string values, for example {"customer_name":"{{first_name}}"}.',
+          );
           return;
         }
       }
       if (kind === "sms" && !/^[A-Za-z0-9]{3,11}$/.test(senderId)) {
-        setValidation("Enter your approved sender ID (3–11 letters or numbers).");
+        setValidation(
+          "Enter your approved sender ID (3–11 letters or numbers).",
+        );
         return;
       }
       if (kind === "sms" && /\{\{\s*[^}]+\s*\}\}/.test(message)) {
-        setValidation("Termii bulk sends use one shared message. Remove personalization merge fields before saving.");
+        setValidation(
+          "Termii bulk sends use one shared message. Remove personalization merge fields before saving.",
+        );
         return;
       }
       if (
@@ -514,7 +570,9 @@ export function ModalDialog({
         return;
       }
       if (kind !== "email" && scheduleAt) {
-        setValidation("Scheduling is not enabled for SMS or WhatsApp campaigns. Save this campaign as a draft and send it when ready.");
+        setValidation(
+          "Scheduling is not enabled for SMS or WhatsApp campaigns. Save this campaign as a draft and send it when ready.",
+        );
         return;
       }
       if (scheduleAt && !audiences.length) {
@@ -522,6 +580,10 @@ export function ModalDialog({
         return;
       }
       setSaving(true);
+      notify(
+        `${campaignEditId ? "Saving changes to" : scheduleAt ? "Scheduling" : "Saving"} campaign ${campaignName.trim()}...`,
+        "loading",
+      );
       try {
         await saveDraft(
           kind === "sms" ? "SMS" : kind === "whatsapp" ? "WhatsApp" : "Email",
@@ -543,10 +605,20 @@ export function ModalDialog({
           campaignEditId,
           senderId,
           kind === "whatsapp"
-            ? { template: whatsappTemplate.trim(), sender: whatsappSender.trim(), mergeInfo: whatsappMergeInfo }
+            ? {
+                template: whatsappTemplate.trim(),
+                sender: whatsappSender.trim(),
+                mergeInfo: whatsappMergeInfo,
+              }
             : undefined,
         );
       } catch (error) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Could not save the campaign.",
+          "error",
+        );
         setValidation(
           error instanceof Error
             ? error.message
@@ -583,6 +655,10 @@ export function ModalDialog({
         return;
       }
       setSaving(true);
+      notify(
+        `${kind === "edit-audience" ? "Saving changes to" : "Creating"} audience ${campaignName.trim()}...`,
+        "loading",
+      );
       try {
         await saveAudience(
           campaignName.trim(),
@@ -593,6 +669,12 @@ export function ModalDialog({
           audienceDescription,
         );
       } catch (error) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Could not save this audience.",
+          "error",
+        );
         setValidation(
           error instanceof Error
             ? error.message
@@ -612,7 +694,11 @@ export function ModalDialog({
         setValidation("Add a subject line to your email template.");
         return;
       }
-      if (templateChannel === "SMS" && senderId.trim() && !/^[A-Za-z0-9]{3,11}$/.test(senderId.trim())) {
+      if (
+        templateChannel === "SMS" &&
+        senderId.trim() &&
+        !/^[A-Za-z0-9]{3,11}$/.test(senderId.trim())
+      ) {
         setValidation("Use a 3 to 11 character alphanumeric SMS sender ID.");
         return;
       }
@@ -624,33 +710,71 @@ export function ModalDialog({
       if (templateChannel === "WhatsApp") {
         try {
           const parsed: unknown = JSON.parse(whatsappMergeInfoText || "{}");
-          if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" ||
-              Object.values(parsed).some((value) => typeof value !== "string")) throw new Error("invalid");
+          if (
+            !parsed ||
+            Array.isArray(parsed) ||
+            typeof parsed !== "object" ||
+            Object.values(parsed).some((value) => typeof value !== "string")
+          )
+            throw new Error("invalid");
           templateMergeInfo = parsed as Record<string, string>;
         } catch {
-          setValidation('Template variables must be a JSON object with string values, for example {"first_name":"{{first_name}}"}.');
+          setValidation(
+            'Template variables must be a JSON object with string values, for example {"first_name":"{{first_name}}"}.',
+          );
           return;
         }
       }
       setSaving(true);
+      notify(
+        `${initialTemplate?.id ? "Saving changes to" : "Creating"} template ${campaignName.trim()}...`,
+        "loading",
+      );
       try {
         await saveTemplate({
-        id: initialTemplate?.id,
-        name: campaignName.trim(),
-        channel: templateChannel,
-        subject: templateChannel === "Email" ? subject.trim() : templateChannel === "SMS" ? senderId.trim() : "",
-        body: message.trim(),
-        emailBlocks: templateChannel === "Email"
-          ? [{ id: `template-content-${Date.now()}`, type: "text", content: message.trim() }]
-          : undefined,
-        attachments: templateChannel === "Email" ? attachmentNames : undefined,
-        objective: objective.trim(),
-        whatsappTemplate: templateChannel === "WhatsApp" ? whatsappTemplate.trim() : undefined,
-        whatsappSender: templateChannel === "WhatsApp" ? whatsappSender.trim() : undefined,
-        whatsappMergeInfo: templateMergeInfo,
+          id: initialTemplate?.id,
+          name: campaignName.trim(),
+          channel: templateChannel,
+          subject:
+            templateChannel === "Email"
+              ? subject.trim()
+              : templateChannel === "SMS"
+                ? senderId.trim()
+                : "",
+          body: message.trim(),
+          emailBlocks:
+            templateChannel === "Email"
+              ? [
+                  {
+                    id: `template-content-${Date.now()}`,
+                    type: "text",
+                    content: message.trim(),
+                  },
+                ]
+              : undefined,
+          attachments:
+            templateChannel === "Email" ? attachmentNames : undefined,
+          objective: objective.trim(),
+          whatsappTemplate:
+            templateChannel === "WhatsApp"
+              ? whatsappTemplate.trim()
+              : undefined,
+          whatsappSender:
+            templateChannel === "WhatsApp" ? whatsappSender.trim() : undefined,
+          whatsappMergeInfo: templateMergeInfo,
         });
       } catch (error) {
-        setValidation(error instanceof Error ? error.message : "Could not save this template.");
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Could not save this template.",
+          "error",
+        );
+        setValidation(
+          error instanceof Error
+            ? error.message
+            : "Could not save this template.",
+        );
       } finally {
         setSaving(false);
       }
@@ -819,7 +943,9 @@ export function ModalDialog({
                   WhatsApp opt-in status
                   <select
                     value={whatsappStatus}
-                    onChange={(e) => setWhatsappStatus(e.target.value as Contact["status"])}
+                    onChange={(e) =>
+                      setWhatsappStatus(e.target.value as Contact["status"])
+                    }
                   >
                     <option>Pending</option>
                     <option>Subscribed</option>
@@ -854,7 +980,9 @@ export function ModalDialog({
                   WhatsApp opt-in status
                   <select
                     value={whatsappStatus}
-                    onChange={(e) => setWhatsappStatus(e.target.value as Contact["status"])}
+                    onChange={(e) =>
+                      setWhatsappStatus(e.target.value as Contact["status"])
+                    }
                   >
                     <option>Pending</option>
                     <option>Subscribed</option>
@@ -977,8 +1105,16 @@ export function ModalDialog({
                 {templateChannel === "SMS" && (
                   <label className="form-label">
                     Sender ID (optional)
-                    <input value={senderId} onChange={(e) => setSenderId(e.target.value)} maxLength={11} placeholder="Approved Termii sender ID" />
-                    <small>Leave blank to use the sender ID configured on the CRM API.</small>
+                    <input
+                      value={senderId}
+                      onChange={(e) => setSenderId(e.target.value)}
+                      maxLength={11}
+                      placeholder="Approved Termii sender ID"
+                    />
+                    <small>
+                      Leave blank to use the sender ID configured on the CRM
+                      API.
+                    </small>
                   </label>
                 )}
                 <label className="form-label">
@@ -1011,19 +1147,40 @@ export function ModalDialog({
                   <>
                     <label className="form-label">
                       Zoho CPaaS template name (optional)
-                      <input value={whatsappTemplate} onChange={(e) => setWhatsappTemplate(e.target.value)} placeholder="Approved template name in Zoho CPaaS" />
+                      <input
+                        value={whatsappTemplate}
+                        onChange={(e) => setWhatsappTemplate(e.target.value)}
+                        placeholder="Approved template name in Zoho CPaaS"
+                      />
                     </label>
                     <label className="form-label">
                       WhatsApp sender (optional)
-                      <input value={whatsappSender} onChange={(e) => setWhatsappSender(e.target.value)} placeholder="Configured Zoho sender" />
+                      <input
+                        value={whatsappSender}
+                        onChange={(e) => setWhatsappSender(e.target.value)}
+                        placeholder="Configured Zoho sender"
+                      />
                     </label>
                     <label className="form-label">
                       Template variables (JSON, optional)
-                      <textarea rows={3} value={whatsappMergeInfoText} onChange={(e) => setWhatsappMergeInfoText(e.target.value)} placeholder={'{"first_name":"{{first_name}}","program_name":"Cephas Program"}'} />
-                      <small>Map Zoho template variables to a contact field or reusable text.</small>
+                      <textarea
+                        rows={3}
+                        value={whatsappMergeInfoText}
+                        onChange={(e) =>
+                          setWhatsappMergeInfoText(e.target.value)
+                        }
+                        placeholder={
+                          '{"first_name":"{{first_name}}","program_name":"Cephas Program"}'
+                        }
+                      />
+                      <small>
+                        Map Zoho template variables to a contact field or
+                        reusable text.
+                      </small>
                     </label>
                     <p className="modal-note">
-                      <MessageCircle size={15} /> Business-initiated WhatsApp messages need an approved Zoho CPaaS template.
+                      <MessageCircle size={15} /> Business-initiated WhatsApp
+                      messages need an approved Zoho CPaaS template.
                     </p>
                   </>
                 )}
@@ -1439,8 +1596,8 @@ export function ModalDialog({
                         placeholder="CEPHAS"
                       />
                       <small>
-                        Enter an active 3–11 character sender ID registered
-                        with Termii.
+                        Enter an active 3–11 character sender ID registered with
+                        Termii.
                       </small>
                     </label>
                   )}
@@ -1655,7 +1812,9 @@ export function ModalDialog({
                         Zoho CPaaS approved template key or alias
                         <input
                           value={whatsappTemplate}
-                          onChange={(event) => setWhatsappTemplate(event.target.value)}
+                          onChange={(event) =>
+                            setWhatsappTemplate(event.target.value)
+                          }
                           maxLength={100}
                           placeholder="appointment_reminder"
                           required
@@ -1666,7 +1825,9 @@ export function ModalDialog({
                         <input
                           type="tel"
                           value={whatsappSender}
-                          onChange={(event) => setWhatsappSender(event.target.value)}
+                          onChange={(event) =>
+                            setWhatsappSender(event.target.value)
+                          }
                           placeholder="+2348012345678"
                           required
                         />
@@ -1676,10 +1837,16 @@ export function ModalDialog({
                         <textarea
                           rows={4}
                           value={whatsappMergeInfoText}
-                          onChange={(event) => setWhatsappMergeInfoText(event.target.value)}
+                          onChange={(event) =>
+                            setWhatsappMergeInfoText(event.target.value)
+                          }
                           placeholder={'{"customer_name":"{{first_name}}"}'}
                         />
-                        <small>Map every required Zoho template variable to text or a contact field: first_name, last_name, full_name, email, phone, or organization.</small>
+                        <small>
+                          Map every required Zoho template variable to text or a
+                          contact field: first_name, last_name, full_name,
+                          email, phone, or organization.
+                        </small>
                       </label>
                       <div className="modal-note whatsapp-note">
                         <MessageCircle size={15} />
@@ -1733,6 +1900,10 @@ export function ModalDialog({
                             }
                             setValidation("");
                             setSendingTest(true);
+                            notify(
+                              `Sending a test email to ${testEmail}...`,
+                              "loading",
+                            );
                             try {
                               await crmApi.sendCampaignTest(
                                 testEmail,
@@ -1746,6 +1917,12 @@ export function ModalDialog({
                               );
                               notify(`Test email sent to ${testEmail}`);
                             } catch (error) {
+                              notify(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Could not send the test email.",
+                                "error",
+                              );
                               setValidation(
                                 error instanceof Error
                                   ? error.message
@@ -1825,30 +2002,32 @@ export function ModalDialog({
                         {kind === "whatsapp"
                           ? "The approved template content is managed in Zoho CPaaS"
                           : kind === "sms"
-                          ? "Same message sent to each opted-in recipient"
-                          : "Personalization sample · Amara"}
+                            ? "Same message sent to each opted-in recipient"
+                            : "Personalization sample · Amara"}
                       </small>
                     </section>
                   )}
-                  {kind === "email" && <label className="form-label schedule-field">
-                    Schedule delivery (optional)
-                    <input
-                      type="datetime-local"
-                      value={scheduleAt}
-                      onChange={(event) => setScheduleAt(event.target.value)}
-                      min={new Date(
-                        Date.now() +
-                          60000 -
-                          new Date().getTimezoneOffset() * 60000,
-                      )
-                        .toISOString()
-                        .slice(0, 16)}
-                    />
-                    <small>
-                      Scheduled email campaigns are delivered by Zoho Campaigns when
-                      this time is reached.
-                    </small>
-                  </label>}
+                  {kind === "email" && (
+                    <label className="form-label schedule-field">
+                      Schedule delivery (optional)
+                      <input
+                        type="datetime-local"
+                        value={scheduleAt}
+                        onChange={(event) => setScheduleAt(event.target.value)}
+                        min={new Date(
+                          Date.now() +
+                            60000 -
+                            new Date().getTimezoneOffset() * 60000,
+                        )
+                          .toISOString()
+                          .slice(0, 16)}
+                      />
+                      <small>
+                        Scheduled email campaigns are delivered by Zoho
+                        Campaigns when this time is reached.
+                      </small>
+                    </label>
+                  )}
                   {kind === "sms" ? (
                     <small className="count-hint">
                       {smsEstimate.characters} characters &middot;{" "}
@@ -1903,7 +2082,9 @@ export function ModalDialog({
                       ? "Save changes"
                       : "Save audience"
                     : kind === "template"
-                      ? initialTemplate?.id ? "Save changes" : "Save template"
+                      ? initialTemplate?.id
+                        ? "Save changes"
+                        : "Save template"
                       : scheduleAt
                         ? "Schedule campaign"
                         : "Save as draft"}{" "}

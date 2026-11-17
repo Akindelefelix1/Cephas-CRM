@@ -22,6 +22,17 @@ export type ApiContact = {
   createdAt: string;
 };
 export type ApiCategory = { id: string; name: string };
+export type ApiAnalytics = {
+  generatedAt: string;
+  range: { days: number; startAt: string; endAt: string; previousStartAt: string; previousEndAt: string };
+  summary: { contactsTotal: number; contactsAdded: number; contactsAddedPrevious: number; campaignsSent: number; campaignsSentPrevious: number; recipients: number; providerAccepted: number; whatsappDelivered: number; failed: number };
+  consent: { email: number; sms: number; whatsapp: number };
+  channels: { channel: "Email" | "SMS" | "WhatsApp"; campaignsSent: number; recipients: number; providerAccepted: number; delivered: number | null; failed: number | null; deliveryRate: number | null; deliveryTrackingAvailable: boolean }[];
+  trends: { date: string; contactsAdded: number; campaignsSent: number; recipients: number; delivered: number; failed: number }[];
+  campaignStatuses: { status: string; count: number }[];
+  recentCampaigns: { id: string; name: string; channel: string; status: string; sentAt: string | null; recipients: number; providerAccepted: number; failed: number; trackedDelivery: number | null }[];
+  engagement: { opens: number | null; clicks: number | null; unsubscribes: number | null; available: boolean; note: string };
+};
 export type ApiAudience = {
   id: string;
   name: string;
@@ -139,6 +150,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const crmApi = {
+  getAnalytics: (periodDays: 7 | 30 | 90) =>
+    request<ApiAnalytics>(`/analytics?period=${periodDays}`),
   listContacts: () => request<ApiContact[]>("/contacts"),
   importContacts: (contacts: Omit<ApiContact, "id" | "createdAt">[]) =>
     request<{ contacts: ApiContact[]; created: number; skipped: number }>(
