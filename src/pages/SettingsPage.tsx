@@ -54,6 +54,8 @@ export function Settings({
   const [openProvider, setOpenProvider] = useState("");
   const [termiiConfigured, setTermiiConfigured] = useState<boolean | null>(null);
   const [whatsappConfigured, setWhatsappConfigured] = useState<boolean | null>(null);
+  const [termiiStatusError, setTermiiStatusError] = useState("");
+  const [whatsappStatusError, setWhatsappStatusError] = useState("");
   const [twoFactorRequired] = useState(true);
   const [privacyRequestType, setPrivacyRequestType] = useState("Access");
   const [privacyRequestEmail, setPrivacyRequestEmail] = useState("");
@@ -66,12 +68,12 @@ export function Settings({
   useEffect(() => {
     crmApi
       .getSmsProviderStatus()
-      .then((status) => setTermiiConfigured(status.configured))
-      .catch(() => setTermiiConfigured(false));
+      .then((status) => { setTermiiConfigured(status.configured); setTermiiStatusError(""); })
+      .catch(() => setTermiiStatusError("Could not reach the CRM API to check Termii."));
     crmApi
       .getWhatsAppProviderStatus()
-      .then((status) => setWhatsappConfigured(status.configured))
-      .catch(() => setWhatsappConfigured(false));
+      .then((status) => { setWhatsappConfigured(status.configured); setWhatsappStatusError(""); })
+      .catch(() => setWhatsappStatusError("Could not reach the CRM API to check Zoho CPaaS."));
   }, []);
   useEffect(() => {
     try {
@@ -730,9 +732,9 @@ export function Settings({
                     : "neutral"
                 }>
                   {openProvider === "Termii"
-                    ? termiiConfigured ? "API key configured" : "API key missing"
+                    ? termiiConfigured ? "API key configured" : termiiStatusError ? "Status unavailable" : termiiConfigured === false ? "API key missing" : "Checking status…"
                     : openProvider === "WhatsApp Business"
-                      ? whatsappConfigured ? "API key configured" : "API key missing"
+                      ? whatsappConfigured ? "API key configured" : whatsappStatusError ? "Status unavailable" : whatsappConfigured === false ? "API key missing" : "Checking status…"
                       : "Setup required"}
                 </Badge>
                 <h3>{openProvider} setup</h3>
@@ -743,6 +745,8 @@ export function Settings({
                       ? "WhatsApp campaigns use Zoho CPaaS and approved message templates. Keep its channel API key in the backend environment."
                       : "Connect credentials and verify a sender before enabling delivery."}
                 </p>
+                {openProvider === "Termii" && termiiStatusError && <p className="category-error" role="status">{termiiStatusError}</p>}
+                {openProvider === "WhatsApp Business" && whatsappStatusError && <p className="category-error" role="status">{whatsappStatusError}</p>}
               </div>
               <ul>
                 {openProvider === "Termii" ? (

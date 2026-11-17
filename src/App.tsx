@@ -1087,7 +1087,7 @@ export function CRMApp({
     );
     recordAudit(
       campaignId
-        ? "Updated email campaign"
+        ? `Updated ${channel} campaign`
         : status === "Scheduled"
           ? "Scheduled campaign"
           : "Created campaign draft",
@@ -1102,10 +1102,10 @@ export function CRMApp({
       scheduleFailure
         ? `${name} saved as a draft. Scheduling failed: ${scheduleFailure}`
         : campaignId
-          ? "Email campaign changes saved"
+          ? `${channel} campaign changes saved`
           : status === "Scheduled"
-            ? "Email campaign saved and scheduled with Zoho Campaigns"
-            : "Email campaign draft saved",
+            ? `${channel} campaign saved and scheduled with Zoho Campaigns`
+            : `${channel} campaign draft saved`,
     );
   };
   const updateCampaignRecord = (updated: ApiCampaign) => {
@@ -1169,6 +1169,8 @@ export function CRMApp({
         item.id === campaign.id
           ? {
               ...item,
+              status: delivery.status,
+              lastError: delivery.lastError,
               reach: String(delivery.total),
               engagement: `${delivery.delivered} delivered · ${delivery.pending} pending · ${delivery.failed} failed`,
             }
@@ -1206,6 +1208,10 @@ export function CRMApp({
       subject = subjectLine.slice("Subject: ".length);
       body = content.join("\n\n");
     }
+    if (campaign.channel === "SMS") {
+      subject = body.match(/\n\nSender ID: ([A-Za-z0-9]{3,11})$/)?.[1] ?? "";
+      body = body.replace(/\n\nSender ID: [A-Za-z0-9]{3,11}$/, "");
+    }
     body = body.replace(/\n\nAttachments: [\s\S]*$/, "");
     setCampaignTemplateSeed({
       name: copyName,
@@ -1238,12 +1244,19 @@ export function CRMApp({
   };
   const editCampaign = (campaign: Campaign) => {
     if (!campaign.id || campaign.status !== "Draft") return;
-    const subject = campaign.message?.match(/^Subject: ([^\n]*)/)?.[1] ?? "";
+    const subject = campaign.channel === "Email"
+      ? campaign.message?.match(/^Subject: ([^\n]*)/)?.[1] ?? ""
+      : campaign.channel === "SMS"
+        ? campaign.message?.match(/\n\nSender ID: ([A-Za-z0-9]{3,11})$/)?.[1] ?? ""
+        : "";
+    const body = campaign.channel === "SMS"
+      ? (campaign.message ?? "").replace(/\n\nSender ID: [A-Za-z0-9]{3,11}$/, "")
+      : "";
     setCampaignTemplateSeed({
       name: campaign.name,
       channel: campaign.channel,
       subject,
-      body: "",
+      body,
       emailBlocks: campaign.emailBlocks ?? [],
       attachments: campaign.attachments,
       objective: campaign.objective,

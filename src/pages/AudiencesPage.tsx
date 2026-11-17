@@ -10,7 +10,6 @@ import {
   Plus,
   Search,
   Send,
-  SlidersHorizontal,
   Trash2,
   Users,
   X,
@@ -18,6 +17,7 @@ import {
 import type { Contact, AudienceRecord, AudienceDraft } from "../models";
 import { Badge, PageHeading } from "../components/Shared";
 import { audienceRecordFromApi } from "../models";
+import { ActionMenu } from "../components/ActionMenu";
 import { DeletePhraseInput, deletePhraseMatches } from "../components/Shared";
 
 export function AudienceProfile({
@@ -120,19 +120,21 @@ export function AudienceProfile({
             <button className="btn secondary" onClick={onBack}>
               <ChevronLeft size={16} /> Back to audiences
             </button>
-            <button className="btn secondary" onClick={onEdit}>
-              <SlidersHorizontal size={15} /> Edit audience
-            </button>
-            <button
-              className="btn danger-quiet"
-              onClick={() => {
-                setAudienceDeletePhrase("");
-                setAudienceDeleteError("");
-                setConfirmDelete(true);
-              }}
-            >
-              <Trash2 size={15} /> Delete
-            </button>
+            <ActionMenu
+              label={audience.name}
+              items={[
+                { label: "Edit audience", onSelect: onEdit },
+                {
+                  label: "Delete audience",
+                  danger: true,
+                  onSelect: () => {
+                    setAudienceDeletePhrase("");
+                    setAudienceDeleteError("");
+                    setConfirmDelete(true);
+                  },
+                },
+              ]}
+            />
             <button
               className="btn primary"
               onClick={() => openCampaign(audience.name)}

@@ -11,13 +11,12 @@ import {
   Mail,
   Send,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
-  Trash2,
   X,
 } from "lucide-react";
 import type { Contact, AuditEvent } from "../models";
 import { Badge, PageHeading } from "../components/Shared";
+import { ActionMenu } from "../components/ActionMenu";
 import { crmApi } from "../api";
 
 export function ContactProfile({
@@ -113,12 +112,13 @@ export function ContactProfile({
             <button className="btn secondary" onClick={onBack}>
               <ChevronLeft size={16} /> Back to contacts
             </button>
-            <button className="btn secondary" onClick={onEdit}>
-              <SlidersHorizontal size={15} /> Edit contact
-            </button>
-            <button className="btn danger-quiet" onClick={onDelete}>
-              <Trash2 size={15} /> Delete
-            </button>
+            <ActionMenu
+              label={contact.name}
+              items={[
+                { label: "Edit contact", onSelect: onEdit },
+                { label: "Delete contact", danger: true, onSelect: onDelete },
+              ]}
+            />
             <button className="btn primary" onClick={onStartCampaign}>
               <Send size={15} /> Create campaign
             </button>

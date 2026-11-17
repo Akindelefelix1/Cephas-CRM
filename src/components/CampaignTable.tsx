@@ -1,6 +1,7 @@
-import type { Campaign } from "../models";
-import { Badge } from "./Shared";
 import { Mail, MessageCircle, MessageSquareText } from "lucide-react";
+import type { Campaign } from "../models";
+import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
+import { Badge } from "./Shared";
 
 export function CampaignTable({
   rows,
@@ -23,6 +24,93 @@ export function CampaignTable({
   onRefreshDelivery?: (campaign: Campaign) => void;
   busyId?: string;
 }) {
+  const hasActions =
+    onRequestApproval ||
+    onSchedule ||
+    onEdit ||
+    onSend ||
+    onRefreshDelivery ||
+    onDuplicate;
+
+  const actionsFor = (campaign: Campaign): ActionMenuItem[] => {
+    const busy = busyId === (campaign.id ?? campaign.name);
+    return [
+      ...(onRequestApproval && campaign.status === "Draft"
+        ? [
+            {
+              label: busy ? "Submitting..." : "Submit for approval",
+              onSelect: () => onRequestApproval(campaign),
+              disabled: Boolean(busyId),
+            },
+          ]
+        : onRequestApproval &&
+            campaign.status === "Pending approval" &&
+            onApprove
+          ? [
+              {
+                label: busy ? "Approving..." : "Approve",
+                onSelect: () => onApprove(campaign),
+                disabled: Boolean(busyId),
+              },
+            ]
+          : []),
+      ...(onEdit && campaign.status === "Draft"
+        ? [
+            {
+              label: "Edit",
+              onSelect: () => onEdit(campaign),
+              disabled: Boolean(busyId),
+            },
+          ]
+        : []),
+      ...(onSchedule && campaign.status === "Draft" && campaign.scheduledAt
+        ? [
+            {
+              label: busy ? "Scheduling..." : "Retry schedule",
+              onSelect: () => onSchedule(campaign),
+              disabled: Boolean(busyId),
+            },
+          ]
+        : []),
+      ...(onSend &&
+      ["Draft", "Approved", "Failed", "Sent with failures"].includes(
+        campaign.status,
+      )
+        ? [
+            {
+              label: busy
+                ? "Sending..."
+                : campaign.status === "Draft"
+                  ? "Send now"
+                  : "Retry send",
+              onSelect: () => onSend(campaign),
+              disabled: Boolean(busyId),
+            },
+          ]
+        : []),
+      ...(onRefreshDelivery &&
+      campaign.channel === "WhatsApp" &&
+      ["Sent", "Sent with failures"].includes(campaign.status)
+        ? [
+            {
+              label: busy ? "Refreshing..." : "Refresh delivery",
+              onSelect: () => onRefreshDelivery(campaign),
+              disabled: Boolean(busyId),
+            },
+          ]
+        : []),
+      ...(onDuplicate
+        ? [
+            {
+              label: "Duplicate",
+              onSelect: () => onDuplicate(campaign),
+              disabled: Boolean(busyId),
+            },
+          ]
+        : []),
+    ];
+  };
+
   return (
     <div className="table-scroll">
       <table className="campaign-table">
@@ -35,38 +123,33 @@ export function CampaignTable({
             <th>REACH</th>
             <th>ENGAGEMENT</th>
             <th>DATE</th>
-            {(onRequestApproval ||
-              onSchedule ||
-              onEdit ||
-              onSend ||
-              onRefreshDelivery ||
-              onDuplicate) && <th>ACTION</th>}
+            {hasActions && <th>ACTION</th>}
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => (
-            <tr key={c.id ?? c.name}>
+          {rows.map((campaign) => (
+            <tr key={campaign.id ?? campaign.name}>
               <td>
                 <div className="campaign-name">
-                  <span className={`campaign-mark ${c.tone}`}>
-                    {c.channel === "Email" ? (
+                  <span className={`campaign-mark ${campaign.tone}`}>
+                    {campaign.channel === "Email" ? (
                       <Mail size={15} />
-                    ) : c.channel === "WhatsApp" ? (
+                    ) : campaign.channel === "WhatsApp" ? (
                       <MessageCircle size={15} />
                     ) : (
                       <MessageSquareText size={15} />
                     )}
                   </span>
-                  <b>{c.name}</b>
+                  <b>{campaign.name}</b>
                 </div>
               </td>
               <td>
-                {c.channel === "Email" ? (
+                {campaign.channel === "Email" ? (
                   <span className="channel-label email-label">
                     <Mail size={14} />
                     Email
                   </span>
-                ) : c.channel === "WhatsApp" ? (
+                ) : campaign.channel === "WhatsApp" ? (
                   <span className="channel-label whatsapp-label">
                     <MessageCircle size={14} />
                     WhatsApp
@@ -78,98 +161,27 @@ export function CampaignTable({
                   </span>
                 )}
               </td>
-              <td>{c.audience}</td>
+              <td>{campaign.audience}</td>
               <td>
-                <Badge tone={c.status}>{c.status}</Badge>
+                <Badge tone={campaign.status}>{campaign.status}</Badge>
+                {campaign.lastError && (
+                  <small
+                    className="campaign-row-error"
+                    title={campaign.lastError}
+                  >
+                    {campaign.lastError}
+                  </small>
+                )}
               </td>
-              <td>{c.reach}</td>
-              <td>{c.engagement}</td>
-              <td>{c.date}</td>
-              {(onRequestApproval ||
-                onSchedule ||
-                onEdit ||
-                onSend ||
-                onRefreshDelivery ||
-                onDuplicate) && (
+              <td>{campaign.reach}</td>
+              <td>{campaign.engagement}</td>
+              <td>{campaign.date}</td>
+              {hasActions && (
                 <td>
-                  {onRequestApproval && c.status === "Draft" ? (
-                    <button
-                      className="text-link"
-                      disabled={Boolean(busyId)}
-                      onClick={() => onRequestApproval(c)}
-                    >
-                      {busyId === (c.id ?? c.name)
-                        ? "Saving..."
-                        : "Submit for approval"}
-                    </button>
-                  ) : onRequestApproval && c.status === "Pending approval" ? (
-                    <button
-                      className="text-link"
-                      disabled={Boolean(busyId)}
-                      onClick={() => onApprove?.(c)}
-                    >
-                      {busyId === (c.id ?? c.name) ? "Approving..." : "Approve"}
-                    </button>
-                  ) : onRequestApproval ? (
-                    <span className="muted-cell">—</span>
-                  ) : null}
-                  {onEdit && c.status === "Draft" && (
-                    <button
-                      className="text-link"
-                      disabled={Boolean(busyId)}
-                      onClick={() => onEdit(c)}
-                    >
-                      Edit
-                    </button>
-                  )}
-                  {onSchedule && c.status === "Draft" && c.scheduledAt && (
-                    <button
-                      className="text-link"
-                      disabled={Boolean(busyId)}
-                      onClick={() => onSchedule(c)}
-                    >
-                      {busyId === (c.id ?? c.name)
-                        ? "Scheduling..."
-                        : "Retry schedule"}
-                    </button>
-                  )}
-                  {onSend &&
-                    [
-                      "Draft",
-                      "Approved",
-                      "Failed",
-                      "Sent with failures",
-                    ].includes(c.status) && (
-                      <button
-                        className="text-link"
-                        disabled={Boolean(busyId)}
-                        onClick={() => onSend(c)}
-                      >
-                        {busyId === (c.id ?? c.name)
-                          ? "Sending..."
-                          : c.status === "Draft"
-                            ? "Send now"
-                            : "Retry send"}
-                      </button>
-                    )}
-                  {onRefreshDelivery && c.channel === "WhatsApp" &&
-                    ["Sent", "Sent with failures"].includes(c.status) && (
-                      <button
-                        className="text-link"
-                        disabled={Boolean(busyId)}
-                        onClick={() => onRefreshDelivery(c)}
-                      >
-                        {busyId === (c.id ?? c.name) ? "Refreshing..." : "Refresh delivery"}
-                      </button>
-                    )}
-                  {onDuplicate && (
-                    <button
-                      className="text-link"
-                      onClick={() => onDuplicate(c)}
-                    >
-                      Duplicate
-                    </button>
-                  )}
+                  <ActionMenu
+                    label={campaign.name}
+                    items={actionsFor(campaign)}
+                  />
                 </td>
               )}
             </tr>

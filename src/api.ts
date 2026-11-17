@@ -1,3 +1,5 @@
+import { getAuthToken } from "./auth";
+
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "https://cephas-crm-api.onrender.com"
 ).replace(/\/$/, "");
@@ -107,9 +109,15 @@ export type ApiTemplate = {
 export type ApiTemplateInput = Omit<ApiTemplate, "id" | "isDefault" | "useCount" | "createdAt" | "updatedAt">;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await getAuthToken();
+  if (!token) throw new Error("Please sign in again to continue.");
   const response = await fetch(`${API_BASE_URL}/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
+      Authorization: `Bearer ${token}`,
+    },
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -247,8 +255,9 @@ export const crmApi = {
       "/campaigns/whatsapp/provider-status",
     ),
   refreshWhatsAppDelivery: (id: string) =>
-    request<{ total: number; delivered: number; failed: number; pending: number; errors: string[] }>(
+    request<{ total: number; delivered: number; failed: number; pending: number; errors: string[]; status: string; lastError: string | null }>(
       `/campaigns/${encodeURIComponent(id)}/whatsapp-delivery`,
+      { method: "POST" },
     ),
   updateCampaign: (id: string, campaign: ApiCampaignInput) =>
     request<ApiCampaign>(`/campaigns/${encodeURIComponent(id)}`, {

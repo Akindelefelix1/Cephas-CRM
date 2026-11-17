@@ -6,6 +6,7 @@ import {
   PageHeading,
   deletePhraseMatches,
 } from "../components/Shared";
+import { ActionMenu } from "../components/ActionMenu";
 
 export function CategoryManager({
   categories,
@@ -225,28 +226,30 @@ export function CategoryManager({
                       <span className="category-usage">
                         {usage} contact{usage === 1 ? "" : "s"}
                       </span>
-                      <button
-                        className="btn secondary"
-                        disabled={busy}
-                        onClick={() => {
-                          setEditing(name);
-                          setEditValue(name);
-                          setError("");
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="btn danger-quiet"
-                        disabled={categories.length <= 1 || busy}
-                        onClick={() => {
-                          setDeleteTarget(name);
-                          setDeletePhrase("");
-                          setError("");
-                        }}
-                      >
-                        Delete
-                      </button>
+                      <ActionMenu
+                        label={name}
+                        items={[
+                          {
+                            label: "Edit category",
+                            disabled: busy,
+                            onSelect: () => {
+                              setEditing(name);
+                              setEditValue(name);
+                              setError("");
+                            },
+                          },
+                          {
+                            label: "Delete category",
+                            danger: true,
+                            disabled: categories.length <= 1 || busy,
+                            onSelect: () => {
+                              setDeleteTarget(name);
+                              setDeletePhrase("");
+                              setError("");
+                            },
+                          },
+                        ]}
+                      />
                     </>
                   )}
                 </div>

@@ -68,6 +68,7 @@ export function CampaignPageFunctional({
       notify(
         `Could not update ${campaign.name}: ${reason instanceof Error ? reason.message : "API error"}`,
       );
+      reload();
     } finally {
       setBusyId("");
     }

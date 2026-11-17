@@ -1961,6 +1961,15 @@ tbody tr:hover {
 .campaign-table {
   min-width: 790px;
 }
+.campaign-row-error {
+  display: block;
+  max-width: 240px;
+  margin-top: 5px;
+  color: #aa4e55;
+  font-size: 9px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 .template-tabs {
   padding: 0;
   margin-bottom: 16px;
@@ -3518,20 +3527,73 @@ tbody tr:hover {
   display: flex;
   gap: 5px;
 }
-.template-card-actions button {
+.template-card-actions .action-menu-trigger {
   width: 26px;
   height: 26px;
-  display: grid;
-  place-items: center;
   border: 1px solid #ffffffa8;
   border-radius: 7px;
   color: #6255a6;
   background: #ffffffa8;
-  cursor: pointer;
 }
-.template-card-actions button:hover {
+.template-card-actions .action-menu-trigger:hover {
   color: #4534b3;
   background: #fff;
+}
+.action-menu-anchor {
+  display: inline-flex;
+  position: relative;
+}
+.action-menu-trigger {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #77758d;
+  background: transparent;
+  cursor: pointer;
+}
+.action-menu-trigger:hover,
+.action-menu-trigger[aria-expanded="true"] {
+  color: #5f4bd3;
+  border-color: #e9e6f5;
+  background: #f8f7fc;
+}
+.action-menu-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 184px;
+  max-height: min(280px, calc(100vh - 24px));
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid #ebe9f2;
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 12px 32px #28243b24;
+}
+.action-menu-popover button {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: #454359;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.action-menu-popover button:hover:not(:disabled) {
+  background: #f7f6fc;
+}
+.action-menu-popover button.danger {
+  color: #b64f5b;
+}
+.action-menu-popover button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .category-error {
   margin: -9px 2px 0;
