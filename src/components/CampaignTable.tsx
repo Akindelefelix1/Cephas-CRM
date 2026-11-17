@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Mail, MessageCircle, MessageSquareText } from "lucide-react";
 import type { Campaign } from "../models";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
@@ -24,6 +25,7 @@ export function CampaignTable({
   onRefreshDelivery?: (campaign: Campaign) => void;
   busyId?: string;
 }) {
+  const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
   const hasActions =
     onRequestApproval ||
     onSchedule ||
@@ -165,12 +167,20 @@ export function CampaignTable({
               <td>
                 <Badge tone={campaign.status}>{campaign.status}</Badge>
                 {campaign.lastError && (
-                  <small
+                  <button
+                    type="button"
                     className="campaign-row-error"
                     title={campaign.lastError}
+                    aria-expanded={expandedErrorId === (campaign.id ?? campaign.name)}
+                    aria-label={`${expandedErrorId === (campaign.id ?? campaign.name) ? "Hide" : "Read"} full failure message for ${campaign.name}`}
+                    onClick={() => {
+                      const id = campaign.id ?? campaign.name;
+                      setExpandedErrorId((current) => current === id ? null : id);
+                    }}
                   >
-                    {campaign.lastError}
-                  </small>
+                    <span className={expandedErrorId === (campaign.id ?? campaign.name) ? "campaign-row-error-text expanded" : "campaign-row-error-text"}>{campaign.lastError}</span>
+                    <span className="campaign-error-toggle">{expandedErrorId === (campaign.id ?? campaign.name) ? "Hide details" : "Read full error"}</span>
+                  </button>
                 )}
               </td>
               <td>{campaign.reach}</td>

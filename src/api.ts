@@ -22,6 +22,17 @@ export type ApiContact = {
   createdAt: string;
 };
 export type ApiCategory = { id: string; name: string };
+export type ApiAuditEvent = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  actorEmail: string | null;
+  action: string;
+  details: string;
+  eventType: string;
+  createdAt: string;
+};
+export type ApiAuditList = { items: ApiAuditEvent[]; total: number; eventTypes: string[]; limit: number; offset: number };
 export type ApiAnalytics = {
   generatedAt: string;
   range: { days: number; startAt: string; endAt: string; previousStartAt: string; previousEndAt: string };
@@ -150,6 +161,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const crmApi = {
+  listAuditEvents: (options: { search?: string; eventType?: string; limit?: number; offset?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.search) params.set("search", options.search);
+    if (options.eventType && options.eventType !== "All activity") params.set("eventType", options.eventType);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    if (options.offset !== undefined) params.set("offset", String(options.offset));
+    return request<ApiAuditList>(`/audit-events${params.size ? `?${params}` : ""}`);
+  },
+  createAuditEvent: (event: { actorName: string; actorEmail: string; action: string; details: string; eventType: string }) =>
+    request<ApiAuditEvent>("/audit-events", { method: "POST", body: JSON.stringify(event) }),
   getAnalytics: (periodDays: 7 | 30 | 90) =>
     request<ApiAnalytics>(`/analytics?period=${periodDays}`),
   listContacts: () => request<ApiContact[]>("/contacts"),

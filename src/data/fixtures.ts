@@ -1,4 +1,4 @@
-import type { AuditEvent, Campaign } from "../models";
+import type { Campaign } from "../models";
 
 export const campaigns: Campaign[] = [
   {
@@ -76,53 +76,3 @@ export const campaigns: Campaign[] = [
   },
 ];
 
-export const auditRows: AuditEvent[] = [
-  [
-    "Amara Okafor",
-    "Approved campaign",
-    "Cybersecurity Training Campaign",
-    "Campaign approval",
-    "Nov 13, 10:42 AM",
-    "green",
-  ],
-  [
-    "Tunde Bakare",
-    "Updated contact",
-    "Chidi Nwosu · consent preference",
-    "Contact updated",
-    "Nov 13, 9:18 AM",
-    "blue",
-  ],
-  [
-    "Nneka Eze",
-    "Exported contacts",
-    "Student cohort · 248 records",
-    "Data export",
-    "Nov 13, 8:56 AM",
-    "orange",
-  ],
-  [
-    "David Adebayo",
-    "Created segment",
-    "Cybersecurity interest",
-    "Audience created",
-    "Nov 12, 4:32 PM",
-    "violet",
-  ],
-  [
-    "Zainab Musa",
-    "Imported contacts",
-    "November prospects.csv · 126 records",
-    "Contact import",
-    "Nov 12, 2:14 PM",
-    "pink",
-  ],
-  [
-    "Chidi Nwosu",
-    "Initiated campaign",
-    "October Learning Digest · Email",
-    "Campaign sent",
-    "Nov 12, 11:06 AM",
-    "green",
-  ],
-];

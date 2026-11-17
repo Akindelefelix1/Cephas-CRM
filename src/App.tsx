@@ -31,6 +31,7 @@ import {
   crmApi,
   type ApiCampaign,
   type ApiAnalytics,
+  type ApiAuditEvent,
   type ApiContact,
 } from "./api";
 import type {
@@ -50,7 +51,6 @@ import {
   audienceRecordFromApi,
   templateFromApi,
 } from "./models";
-import { auditRows } from "./data/fixtures";
 import {
   Badge,
   DeletePhraseInput,
@@ -61,6 +61,12 @@ import { FeatureErrorBoundary } from "./components/FeatureErrorBoundary";
 
 type ToastKind = "success" | "error" | "loading";
 type ToastNotice = { message: string; kind: ToastKind };
+
+const auditEventToRow = (event: ApiAuditEvent): AuditEvent => {
+  const type = event.eventType.toLowerCase();
+  const color = type.includes("approv") || type.includes("sent") ? "green" : type.includes("export") ? "orange" : type.includes("contact") ? "blue" : "violet";
+  return [event.actorName, event.action, event.details, event.eventType, new Date(event.createdAt).toLocaleString(), color];
+};
 
 const ContactsListPage = lazy(() =>
   import("./pages/ContactsPage").then((module) => ({
@@ -282,7 +288,8 @@ export function CRMApp({
     ),
     [segmentSeedContacts, setSegmentSeedContacts] = useState<Contact[]>([]),
     [campaignAudienceSeed, setCampaignAudienceSeed] = useState(""),
-    [auditEvents, setAuditEvents] = useState<AuditEvent[]>(auditRows),
+    [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]),
+    [auditReloadKey, setAuditReloadKey] = useState(0),
     [query, setQuery] = useState(""),
     [category, setCategory] = useState("All categories"),
     [statusFilter, setStatusFilter] = useState("All statuses"),
@@ -314,6 +321,13 @@ export function CRMApp({
     [period, setPeriod] = useState("Last 30 days");
   const periodDays = period === "Last 7 days" ? 7 : period === "Last 90 days" ? 90 : 30;
   const analyticsForPeriod = analytics?.range.days === periodDays ? analytics : null;
+  useEffect(() => {
+    let active = true;
+    crmApi.listAuditEvents({ limit: 100, offset: 0 })
+      .then((result) => { if (active) setAuditEvents(result.items.map(auditEventToRow)); })
+      .catch(() => { if (active) setAuditEvents([]); });
+    return () => { active = false; };
+  }, [auditReloadKey]);
   useEffect(() => {
     let active = true;
     setAnalyticsLoading(true);
@@ -528,11 +542,21 @@ export function CRMApp({
       );
     }
   };
-  const recordAudit = (activity: string, details: string, eventType: string) =>
-    setAuditEvents((rows) => [
-      ["Amara Okafor", activity, details, eventType, "Just now", "violet"],
-      ...rows,
-    ]);
+  const recordAudit = (activity: string, details: string, eventType: string) => {
+    void crmApi.createAuditEvent({
+      actorName: account.name || account.email,
+      actorEmail: account.email,
+      action: activity,
+      details,
+      eventType,
+    }).then((event) => {
+      setAuditEvents((rows) => [auditEventToRow(event), ...rows].slice(0, 100));
+      setAuditReloadKey((key) => key + 1);
+    }).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : "The audit service could not save this event.";
+      notify(`Activity completed, but its audit record could not be saved: ${detail}`, "error");
+    });
+  };
   const go = (p: Page) => {
     const path =
       p === "Contact profile" && activeContact
@@ -2582,9 +2606,9 @@ export function CRMApp({
               )}
               {page === "Audit log" && (
                 <AuditLogPreview
-                  events={auditEvents}
                   notify={notify}
                   recordAudit={recordAudit}
+                  reloadKey={auditReloadKey}
                 />
               )}
               {page === "Settings" && (
