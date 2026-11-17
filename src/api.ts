@@ -22,6 +22,17 @@ export type ApiContact = {
   createdAt: string;
 };
 export type ApiCategory = { id: string; name: string };
+export type ApiSettings = {
+  workspace: { ownerId: string; organizationName: string; timezone: string; senderName: string; updatedAt?: string };
+  integrations: {
+    email: { provider: string; configured: boolean; sender: string | null };
+    sms: { provider: string; configured: boolean; sender: string | null };
+    whatsapp: { provider: string; configured: boolean; sender: string | null };
+  };
+  policies: { emailConsentRequiredForSend: boolean; smsConsentRequiredForSend: boolean; whatsappConsentRequiredForSend: boolean; importedContactsDefaultConsent: string; twoFactorManagedBy: string };
+  privacyRequests: ApiPrivacyRequest[];
+};
+export type ApiPrivacyRequest = { id: string; requestType: "Access" | "Correction" | "Deletion"; email: string; status: string; createdAt: string };
 export type ApiAuditEvent = {
   id: string;
   actorId: string;
@@ -161,6 +172,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const crmApi = {
+  getSettings: () => request<ApiSettings>("/settings"),
+  updateSettings: (input: { organizationName: string; timezone: string; senderName: string }) =>
+    request<ApiSettings["workspace"]>("/settings", { method: "PATCH", body: JSON.stringify(input) }),
+  createPrivacyRequest: (input: { requestType: ApiPrivacyRequest["requestType"]; email: string }) =>
+    request<ApiPrivacyRequest>("/settings/privacy-requests", { method: "POST", body: JSON.stringify(input) }),
   listAuditEvents: (options: { search?: string; eventType?: string; limit?: number; offset?: number } = {}) => {
     const params = new URLSearchParams();
     if (options.search) params.set("search", options.search);

@@ -249,6 +249,7 @@ export function CRMApp({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
+  const [workspaceDisplayName, setWorkspaceDisplayName] = useState("Cephas People");
   const toastTimer = useRef<number | undefined>(undefined);
   const [page, setPage] = useState<Page>(() =>
       pageForPath(window.location.pathname),
@@ -321,6 +322,15 @@ export function CRMApp({
     [period, setPeriod] = useState("Last 30 days");
   const periodDays = period === "Last 7 days" ? 7 : period === "Last 90 days" ? 90 : 30;
   const analyticsForPeriod = analytics?.range.days === periodDays ? analytics : null;
+  useEffect(() => {
+    let active = true;
+    crmApi.getSettings().then((response) => {
+      if (active) setWorkspaceDisplayName(response.workspace.organizationName);
+    }).catch(() => {
+      // Keep the product name visible if preferences are temporarily unavailable.
+    });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     let active = true;
     crmApi.listAuditEvents({ limit: 100, offset: 0 })
@@ -2274,7 +2284,7 @@ export function CRMApp({
             <Menu size={19} />
           </button>
           <div className="breadcrumb">
-            <span>Cephas People</span>
+            <span>{workspaceDisplayName}</span>
             <span className="slash">/</span>
             <b>{page}</b>
           </div>
@@ -2617,17 +2627,18 @@ export function CRMApp({
                   onSignOut={onSignOut}
                   notify={notify}
                   recordAudit={recordAudit}
+                  onWorkspaceNameChange={setWorkspaceDisplayName}
                 />
               )}
               {page === "Leads" && <ComingSoon />}
             </Suspense>
           </FeatureErrorBoundary>
           <footer className="footer">
-            <span>© 2026 Cephas People</span>
+            <span>© {new Date().getFullYear()} {workspaceDisplayName}</span>
             <span>
               {page === "Email campaigns"
                 ? "Campaign records via CRM API"
-                : "Cephas People CRM"}
+                : `${workspaceDisplayName} CRM`}
             </span>
             <span>
               {page === "Email campaigns"
