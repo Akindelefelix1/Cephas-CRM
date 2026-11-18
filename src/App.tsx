@@ -10,14 +10,12 @@ import {
   CircleHelp,
   ContactRound,
   FileText,
-  Grid2X2,
   LayoutDashboard,
   LoaderCircle,
   Mail,
   Menu,
   MessageCircle,
   MessageSquareText,
-  Search,
   Settings2,
   ShieldCheck,
   Trash2,
@@ -206,18 +204,15 @@ const pathForPage = (page: Page) => {
   };
   return paths[page];
 };
+const primaryNavItems: { name: Page; icon: typeof LayoutDashboard }[] = [
+  { name: "Dashboard", icon: LayoutDashboard },
+  { name: "Contacts", icon: ContactRound },
+  { name: "Audiences", icon: Users },
+];
 const navGroups: {
   label: string;
-  items: { name: Page; icon: typeof Grid2X2; badge?: string }[];
+  items: { name: Page; icon: typeof LayoutDashboard; badge?: string }[];
 }[] = [
-  {
-    label: "WORKSPACE",
-    items: [
-      { name: "Dashboard", icon: LayoutDashboard },
-      { name: "Contacts", icon: ContactRound },
-      { name: "Audiences", icon: Users },
-    ],
-  },
   {
     label: "COMMUNICATIONS",
     items: [
@@ -2283,27 +2278,24 @@ export function CRMApp({
           >
             <Menu size={19} />
           </button>
-          <div className="breadcrumb">
-            <span>{workspaceDisplayName}</span>
-            <span className="slash">/</span>
-            <b>{page}</b>
-          </div>
+          <nav className="top-nav" aria-label="Primary navigation">
+            {primaryNavItems.map((item) => (
+              <button
+                key={item.name}
+                type="button"
+                onClick={() => go(item.name)}
+                className={`top-nav-item ${page === item.name || (page === "Audience profile" && item.name === "Audiences") || (page === "Categories" && item.name === "Contacts") ? "active" : ""}`}
+                aria-current={page === item.name ? "page" : undefined}
+              >
+                <item.icon size={16} />
+                <span>{item.name}</span>
+                {item.name === "Contacts" && (
+                  <span className="top-nav-count">{contacts.length}</span>
+                )}
+              </button>
+            ))}
+          </nav>
           <div className="top-actions">
-            <button
-              className="top-search"
-              aria-label="Search contacts"
-              onClick={() => {
-                go("Contacts");
-                window.setTimeout(
-                  () => document.getElementById("contact-search")?.focus(),
-                  0,
-                );
-              }}
-            >
-              <Search size={16} />
-              <span>Search contacts...</span>
-              <kbd>⌘ K</kbd>
-            </button>
             <button
               className="icon-btn notification"
               aria-label="Notifications"

@@ -303,46 +303,50 @@ textarea:focus-visible {
   border-bottom: 1px solid #eeedf3;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 18px;
   padding: 0 34px;
 }
-.breadcrumb {
+.top-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: #9291a3;
+  gap: 5px;
 }
-.breadcrumb b {
-  color: #37364a;
+.top-nav-item {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #77768a;
+  font-size: 12px;
+  font-weight: 500;
+}
+.top-nav-item svg {
+  color: #9290a4;
+}
+.top-nav-item:hover {
+  color: var(--ink);
+  background: #f8f7fc;
+}
+.top-nav-item.active {
+  color: #5e4bcc;
+  background: #f1efff;
   font-weight: 600;
 }
-.slash {
-  color: #c5c4d0;
+.top-nav-item.active svg {
+  color: #6552d5;
 }
-.top-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+.top-nav-count {
+  font-size: 9px;
+  color: #858397;
+  background: #e9e7f1;
+  padding: 3px 6px;
+  border-radius: 10px;
 }
-.top-search {
-  width: 216px;
-  height: 34px;
-  border: 1px solid #eeeef3;
-  border-radius: 8px;
-  background: #fafafd;
-  color: #8f8e9f;
-  display: flex;
-  align-items: center;
-  padding: 0 9px;
-  gap: 7px;
-  font-size: 11px;
-}
-.top-search span {
-  flex: 1;
-  text-align: left;
-}
-.top-search kbd,
 .search-input kbd {
   font-size: 9px;
   color: #9e9dae;
@@ -350,6 +354,12 @@ textarea:focus-visible {
   border: 1px solid #ebeaf0;
   border-radius: 4px;
   padding: 2px 4px;
+}
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
 }
 .icon-btn {
   border: 0;
@@ -3084,28 +3094,17 @@ tbody tr:hover {
   .menu-toggle {
     display: grid;
   }
-  .breadcrumb {
+  .top-nav {
+    gap: 2px;
+  }
+  .top-nav-item {
+    gap: 5px;
+    padding: 0 7px;
     font-size: 11px;
-    gap: 7px;
   }
   .top-actions {
     margin-left: auto;
     gap: 10px;
-  }
-  .top-search {
-    width: 34px;
-    padding: 0;
-    justify-content: center;
-    border: 0;
-    background: transparent;
-  }
-  .top-search span,
-  .top-search kbd {
-    display: none;
-  }
-  .top-search svg {
-    width: 19px;
-    height: 19px;
   }
   .top-divider,
   .account-name,
@@ -3288,6 +3287,19 @@ tbody tr:hover {
   }
   .topbar {
     padding: 0 10px;
+    gap: 5px;
+  }
+  .top-nav-item {
+    gap: 4px;
+    height: 34px;
+    padding: 0 5px;
+    font-size: 10px;
+  }
+  .top-nav-item svg {
+    display: none;
+  }
+  .top-nav-count {
+    padding: 2px 5px;
   }
   .page-heading {
     gap: 7px;
