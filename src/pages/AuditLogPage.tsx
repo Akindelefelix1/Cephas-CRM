@@ -2,12 +2,9 @@ import { useEffect, useState } from "react";
 import { ArrowDownToLine, ChevronLeft, ChevronRight, Search, ShieldCheck } from "lucide-react";
 import { crmApi, type ApiAuditEvent } from "../api";
 import { Badge, PageHeading } from "../components/Shared";
+import { csvCell } from "../utils/csv";
 
 const PAGE_SIZE = 25;
-const csvCell = (value: string) => {
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-  return `"${safe.replaceAll('"', '""')}"`;
-};
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
 const colorFor = (eventType: string) => {
   const type = eventType.toLowerCase();

@@ -6124,3 +6124,347 @@ tbody tr:hover {
 .analytics-updated { display: block; margin: 6px 0 12px; color: #89879b; font-size: 11px; }
 .report-detail-grid { margin-top: 16px; }
 .campaign-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #7460e7; }
+
+/* Shared finish: consistent hierarchy, calmer surfaces, and more usable controls. */
+:root {
+  --ink: #25243a;
+  --muted: #77768d;
+  --line: #e9e8f0;
+  --panel: #fff;
+  --surface: #f7f7fb;
+  --purple: #6957d9;
+  --purple-dark: #5947cb;
+  --surface-shadow: 0 8px 24px rgb(38 34 72 / 4%);
+}
+
+body {
+  color: var(--ink);
+  background: #f7f7fb;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.main-area,
+.content,
+.page-heading > div:first-child,
+.panel,
+.table-panel,
+.settings-panel {
+  min-width: 0;
+}
+
+.content {
+  width: 100%;
+  padding: clamp(22px, 2.5vw, 38px) clamp(18px, 2.7vw, 42px) 20px;
+}
+
+.page-heading {
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+
+.page-heading h1 {
+  font-size: clamp(25px, 2.2vw, 30px);
+  line-height: 1.2;
+  letter-spacing: -0.9px;
+  font-weight: 750;
+}
+
+.page-desc {
+  max-width: 720px;
+  color: #77768d;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.eyebrow {
+  color: #6c5bd0;
+  font-size: 10px;
+  letter-spacing: 1.05px;
+}
+
+.section-title,
+.panel-heading h2,
+.panel-title h3,
+.settings-section-heading h2 {
+  color: #302e45;
+  font-weight: 700;
+}
+
+.panel,
+.stat-card,
+.audience-card,
+.template-card,
+.help-guide,
+.settings-panel,
+.category-card,
+.coming-card {
+  border-color: #eae9f1;
+  box-shadow: var(--surface-shadow);
+}
+
+.panel,
+.stat-card,
+.settings-panel {
+  border-radius: 14px;
+}
+
+.panel-heading h2,
+.panel-title h3,
+.section-title {
+  font-size: 15px;
+}
+
+.panel-heading p,
+.section-subtitle {
+  color: #85849a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.btn {
+  min-height: 38px;
+  height: auto;
+  padding: 8px 14px;
+  border-radius: 9px;
+  font-size: 12px;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.btn.primary {
+  box-shadow: 0 4px 10px rgb(89 71 203 / 18%);
+}
+
+.topbar {
+  border-bottom-color: #e9e8f0;
+  background: rgb(255 255 255 / 92%);
+}
+
+.top-nav-item {
+  min-height: 38px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.top-nav-item.active {
+  background: #f1efff;
+}
+
+.table-scroll {
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+}
+
+.table-panel th,
+.table-scroll th {
+  color: #77768d;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.table-panel td,
+.table-scroll td {
+  color: #666579;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.table-panel td b,
+.table-scroll td b,
+.contact-cell b,
+.campaign-name > b {
+  color: #38364d;
+  font-weight: 650;
+}
+
+.badge,
+.nav-count,
+.soon,
+.stat-change {
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.form-label {
+  color: #49485f;
+  font-size: 11px;
+}
+
+.form-label input,
+.form-label select,
+.form-label textarea,
+.table-toolbar select,
+.audit-filters select,
+.search-input {
+  border-color: #e2e1eb;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.form-label input,
+.form-label select,
+.table-toolbar select,
+.audit-filters select {
+  min-height: 40px;
+  height: auto;
+}
+
+.search-input {
+  min-height: 40px;
+  height: auto;
+}
+
+.modal {
+  border: 1px solid #eeedf4;
+  border-radius: 16px;
+}
+
+.modal-head h2 {
+  color: #302e45;
+  font-size: 19px;
+}
+
+.footer {
+  color: #85849a;
+  font-size: 10px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgb(105 87 217 / 28%);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .content {
+    padding: 24px 22px 18px;
+  }
+
+  .page-heading {
+    margin-bottom: 22px;
+  }
+}
+
+@media (max-width: 760px) {
+  .content {
+    padding: 22px 17px 16px;
+  }
+
+  .page-heading {
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .page-heading h1 {
+    font-size: 24px;
+  }
+
+  .page-desc {
+    font-size: 12px;
+  }
+
+  .topbar {
+    gap: 7px;
+  }
+
+  .top-nav {
+    min-width: 0;
+    gap: 1px;
+  }
+
+  .top-nav-item {
+    gap: 5px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .panel,
+  .settings-panel {
+    border-radius: 13px;
+  }
+
+  .btn {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 440px) {
+  .content {
+    padding: 19px 13px 14px;
+  }
+
+  .topbar {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .top-nav-item {
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .page-heading h1 {
+    font-size: 22px;
+  }
+
+  .page-desc {
+    font-size: 11px;
+  }
+
+  .heading-actions {
+    justify-content: flex-start;
+  }
+
+  .heading-actions .btn {
+    min-height: 38px;
+    height: auto;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .modal-backdrop {
+    padding: 10px;
+  }
+
+  .modal-head,
+  .modal-fields {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .modal-foot {
+    padding-right: 16px;
+    padding-left: 16px;
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

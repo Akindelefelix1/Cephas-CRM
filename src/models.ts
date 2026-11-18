@@ -50,6 +50,7 @@ export type Campaign = {
   reach: string;
   engagement: string;
   date: string;
+  sentAt?: string | null;
   tone: string;
   objective?: string;
   message?: string;
@@ -166,9 +167,13 @@ export const campaignFromApi = (row: ApiCampaign): Campaign => {
     status: row.status,
     reach: String(row.recipientCount || "-"),
     engagement: "-",
-    date: row.scheduledAt
-      ? new Date(row.scheduledAt).toLocaleString()
-      : new Date(row.createdAt).toLocaleDateString(),
+    date:
+      row.status === "Sent" || row.status === "Sent with failures"
+        ? new Date(row.sentAt ?? row.createdAt).toLocaleString()
+        : row.status === "Scheduled" && row.scheduledAt
+          ? new Date(row.scheduledAt).toLocaleString()
+          : new Date(row.createdAt).toLocaleDateString(),
+    sentAt: row.sentAt,
     tone: "violet",
     objective: row.objective,
     message,

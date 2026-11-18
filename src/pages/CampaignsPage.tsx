@@ -14,6 +14,7 @@ import {
 import type { Campaign } from "../models";
 import { PageHeading, Stat } from "../components/Shared";
 import { CampaignTable } from "../components/CampaignTable";
+import { csvCell } from "../utils/csv";
 
 export function CampaignPageFunctional({
   channel,
@@ -56,6 +57,14 @@ export function CampaignPageFunctional({
     modalKind = isMail ? "email" : isWhatsApp ? "whatsapp" : "sms",
     allRows = records.filter((c) => c.channel === channel),
     rows = allRows.filter((c) => status === "All" || c.status === status);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const sentThisMonth = allRows.filter((campaign) => {
+    if (!campaign.sentAt) return false;
+    const sentAt = new Date(campaign.sentAt);
+    return sentAt >= monthStart && sentAt < nextMonthStart;
+  });
   const runAction = async (
     campaign: Campaign,
     action: (campaign: Campaign) => Promise<void>,
@@ -102,7 +111,7 @@ export function CampaignPageFunctional({
       "Campaign,Channel,Audience,Status,Reach,Engagement,Date",
       ...rows.map((c) =>
         [c.name, c.channel, c.audience, c.status, c.reach, c.engagement, c.date]
-          .map((v) => `"${v.replaceAll('"', '""')}"`)
+          .map(csvCell)
           .join(","),
       ),
     ].join("\r\n");
@@ -163,10 +172,7 @@ export function CampaignPageFunctional({
                 : "Messages sent"
           }
           value={String(
-            allRows
-              .filter((row) =>
-                ["Sent", "Sent with failures"].includes(row.status),
-              )
+            sentThisMonth
               .reduce(
                 (sum, row) => sum + Number(row.reach === "—" ? 0 : row.reach),
                 0,

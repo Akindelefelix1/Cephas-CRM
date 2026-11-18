@@ -4,9 +4,9 @@ import type { Campaign, Page } from "../models";
 import { PageHeading, Stat } from "../components/Shared";
 import { CampaignTable } from "../components/CampaignTable";
 import { PerformanceChart } from "../components/PerformanceChart";
+import { csvCell } from "../utils/csv";
 
 const number = (value: number) => new Intl.NumberFormat().format(value);
-const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 
 export function ReportsDashboard({ period, setPeriod, setPage, analytics, loading, error, retry, campaigns, campaignsLoading, campaignsError, retryCampaigns }: {
   period: string; setPeriod: (s: string) => void; setPage: (p: Page) => void; analytics: ApiAnalytics | null; loading: boolean; error: string; retry: () => void; campaigns: Campaign[];

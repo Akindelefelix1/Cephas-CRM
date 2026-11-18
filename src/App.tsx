@@ -56,6 +56,7 @@ import {
   deletePhraseMatches,
 } from "./components/Shared";
 import { FeatureErrorBoundary } from "./components/FeatureErrorBoundary";
+import { csvCell } from "./utils/csv";
 
 type ToastKind = "success" | "error" | "loading";
 type ToastNotice = { message: string; kind: ToastKind };
@@ -1830,7 +1831,6 @@ export function CRMApp({
     }
   };
   const exportCsv = (rows: Contact[] = filtered) => {
-    const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
     const csv = [
       "Name,Email,Alternate_Emails,Phone,Organization,Category,Location,Interests,Tags,Email_Consent_Status,SMS_Consent_Status,WhatsApp_Consent_Status",
       ...rows.map((c) =>
@@ -1848,7 +1848,7 @@ export function CRMApp({
           c.smsStatus ?? "Pending",
           c.whatsappStatus ?? "Pending",
         ]
-          .map(escape)
+          .map(csvCell)
           .join(","),
       ),
     ].join("\r\n");
