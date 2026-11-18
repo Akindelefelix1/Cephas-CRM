@@ -302,6 +302,16 @@ export const crmApi = {
     request<{ configured: boolean; senderId: string | null; countryCode: string; channel: string }>(
       "/campaigns/sms/provider-status",
     ),
+  testTermiiConnection: () =>
+    request<{
+      connected: boolean;
+      provider: string;
+      balance: number;
+      currency: string;
+      senderId: string | null;
+      senderIdStatus: string | null;
+      senderIds: { senderId: string; status: string; country: string | null }[];
+    }>("/campaigns/termii/test-connection", { method: "POST" }),
   getWhatsAppProviderStatus: () =>
     request<{ configured: boolean; sender: string | null }>(
       "/campaigns/whatsapp/provider-status",

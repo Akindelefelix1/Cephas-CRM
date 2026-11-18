@@ -162,6 +162,7 @@ export function ModalDialog({
     ),
     [sendingTest, setSendingTest] = useState(false),
     [senderId, setSenderId] = useState(""),
+    [smsConfigured, setSmsConfigured] = useState<boolean | null>(null),
     [whatsappTemplate, setWhatsappTemplate] = useState(
       initialTemplate?.whatsappTemplate ?? "",
     ),
@@ -254,10 +255,11 @@ export function ModalDialog({
     crmApi
       .getSmsProviderStatus()
       .then((status) => {
+        setSmsConfigured(status.configured);
         if (status.senderId)
           setSenderId((current) => current || status.senderId!);
       })
-      .catch(() => undefined);
+      .catch(() => setSmsConfigured(false));
   }, [kind, templateChannel]);
   const initialAudienceNames = initialAudience
     .split(", ")
@@ -1587,19 +1589,23 @@ export function ModalDialog({
                     </label>
                   )}
                   {kind === "sms" && (
-                    <label className="form-label">
-                      Approved sender ID
-                      <input
-                        value={senderId}
-                        onChange={(event) => setSenderId(event.target.value)}
-                        maxLength={11}
-                        placeholder="CEPHAS"
-                      />
-                      <small>
-                        Enter an active 3–11 character sender ID registered with
-                        Termii.
-                      </small>
-                    </label>
+                    <>
+                      <label className="form-label">
+                        Approved sender ID
+                        <input
+                          value={senderId}
+                          onChange={(event) => setSenderId(event.target.value)}
+                          maxLength={11}
+                          placeholder="CEPHAS"
+                        />
+                        <small>Enter an active 3 to 11 character sender ID registered with Termii.</small>
+                      </label>
+                      {smsConfigured === false && (
+                        <p className="validation-message" role="status">
+                          Termii needs an API key and default sender ID in the CRM API environment before SMS can be sent.
+                        </p>
+                      )}
+                    </>
                   )}
                   {kind === "email" && (
                     <>
