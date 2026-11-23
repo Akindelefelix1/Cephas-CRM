@@ -26,7 +26,7 @@ This project is configured as a Render Static Site in `render.yaml`.
 
 To configure the site manually instead, create a **Static Site** and use build command `npm ci && npm run build` and publish directory `dist`. Add a rewrite rule with source `/*` and destination `/index.html` for client-side navigation fallback.
 
-When the API responds, its contact list replaces the illustrative sample contacts, and contact creation and edits persist through the API. If it is unreachable, the UI keeps sample data and displays an error notification. Audience, campaign, and audit data are still preview data held in the browser session.
+When the API responds, its contact list replaces the illustrative sample contacts, and contact creation and edits persist through the API. If it is unreachable, the UI keeps sample data and displays an error notification. Audience and campaign data may still be preview data held in the browser session. Audit events and retention preferences are stored by the CRM API for the signed-in account.
 
 ## Included UI areas
 
@@ -38,7 +38,8 @@ When the API responds, its contact list replaces the illustrative sample contact
 - Templates, scheduled campaigns and delivery/reporting views
 - Settings for general workspace details, roles, consent/suppression and provider setup
 - Scheduled campaign list/calendar views with cancel state shared with campaign lists
-- Audit log that starts with sample rows and records this session's contact, campaign, audience, schedule, settings and export actions
+- Searchable CRM API audit log with actor details, CSV export, and expandable full event details
+- Per-account automatic audit retention, set to 15 days by default and adjustable from 10 to 30 days in Security & privacy settings
 - Lead management roadmap placeholder, matching the PRD's later-release scope
 
 The displayed numbers, people and initial activity entries are illustrative sample data. UI actions are held in memory for the current session. Excel import, the drag-and-drop email editor, provider connections, real consent enforcement, server-side permissions and persistent audit events require backend implementation.

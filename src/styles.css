@@ -2446,7 +2446,33 @@ tbody tr:hover {
   cursor: not-allowed;
 }
 .audit-table {
-  min-width: 800px;
+  width: 100%;
+  min-width: 980px;
+  table-layout: fixed;
+}
+.audit-table th:nth-child(1) { width: 19%; }
+.audit-table th:nth-child(2) { width: 20%; }
+.audit-table th:nth-child(3) { width: 34%; }
+.audit-table th:nth-child(4) { width: 13%; }
+.audit-table th:nth-child(5) { width: 14%; }
+.audit-detail {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.audit-detail.expanded {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .audit-table td {
   padding-top: 11px;

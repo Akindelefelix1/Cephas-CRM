@@ -23,7 +23,7 @@ export type ApiContact = {
 };
 export type ApiCategory = { id: string; name: string };
 export type ApiSettings = {
-  workspace: { ownerId: string; organizationName: string; timezone: string; senderName: string; updatedAt?: string };
+  workspace: { ownerId: string; organizationName: string; timezone: string; senderName: string; auditRetentionDays: number; updatedAt?: string };
   integrations: {
     email: { provider: string; configured: boolean; sender: string | null };
     sms: { provider: string; configured: boolean; sender: string | null };
@@ -175,6 +175,8 @@ export const crmApi = {
   getSettings: () => request<ApiSettings>("/settings"),
   updateSettings: (input: { organizationName: string; timezone: string; senderName: string }) =>
     request<ApiSettings["workspace"]>("/settings", { method: "PATCH", body: JSON.stringify(input) }),
+  updateAuditRetention: (auditRetentionDays: number) =>
+    request<ApiSettings["workspace"]>("/settings", { method: "PATCH", body: JSON.stringify({ auditRetentionDays }) }),
   createPrivacyRequest: (input: { requestType: ApiPrivacyRequest["requestType"]; email: string }) =>
     request<ApiPrivacyRequest>("/settings/privacy-requests", { method: "POST", body: JSON.stringify(input) }),
   testZohoCampaignsConnection: () =>
